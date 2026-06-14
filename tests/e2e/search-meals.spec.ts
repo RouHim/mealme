@@ -9,8 +9,8 @@ test.describe('Search meals', () => {
 
 	test('filters by meal name (case-insensitive)', async ({ page }) => {
 		await page.goto('/');
-		await createMeal(page, 'Pasta', 'noodles');
-		await createMeal(page, 'Salad', 'lettuce');
+		await createMeal(page, 'Pasta', [{ name: 'noodles' }]);
+		await createMeal(page, 'Salad', [{ name: 'lettuce' }]);
 
 		await page.getByPlaceholder('Search meals...').fill('pas');
 
@@ -20,8 +20,8 @@ test.describe('Search meals', () => {
 
 	test('filters by ingredient', async ({ page }) => {
 		await page.goto('/');
-		await createMeal(page, 'Smoothie', 'banana, milk');
-		await createMeal(page, 'Toast', 'bread');
+		await createMeal(page, 'Smoothie', [{ name: 'banana' }, { name: 'milk' }]);
+		await createMeal(page, 'Toast', [{ name: 'bread' }]);
 
 		await page.getByPlaceholder('Search meals...').fill('banana');
 
@@ -31,8 +31,8 @@ test.describe('Search meals', () => {
 
 	test('clearing the search shows all meals again', async ({ page }) => {
 		await page.goto('/');
-		await createMeal(page, 'Smoothie', 'banana, milk');
-		await createMeal(page, 'Toast', 'bread');
+		await createMeal(page, 'Smoothie', [{ name: 'banana' }, { name: 'milk' }]);
+		await createMeal(page, 'Toast', [{ name: 'bread' }]);
 
 		await page.getByPlaceholder('Search meals...').fill('banana');
 		await expect(page.getByRole('listitem').filter({ hasText: 'Toast' })).not.toBeVisible();

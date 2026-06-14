@@ -77,10 +77,10 @@ test.describe('i18n', () => {
 	test('keyboard accessibility: Tab to toggle and Enter to switch', async ({ page }) => {
 		await setLocale(page, 'en');
 		await page.goto('/');
-
 		await expect(page.locator('h1')).toContainText('Meals');
 
-		// Tab to the toggle
+		// Tab twice to reach the toggle (first tab goes to nav link)
+		await page.keyboard.press('Tab');
 		await page.keyboard.press('Tab');
 		// The toggle should be focused
 		await expect(page.locator('.lang-toggle')).toBeFocused();
@@ -108,7 +108,7 @@ test.describe('i18n', () => {
 		await expect(page.getByText('Zutaten')).toBeVisible();
 
 		// Submit button
-		await expect(page.getByRole('button', { name: 'Hinzufügen' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Hinzufügen', exact: true })).toBeVisible();
 
 		// Empty state
 		await expect(page.getByText('Deine Rezeptsammlung ist leer')).toBeVisible();
@@ -118,7 +118,7 @@ test.describe('i18n', () => {
 		await expect(page.getByRole('heading', { name: 'Alle Mahlzeiten' })).toBeVisible();
 
 		// Validation
-		await page.getByRole('button', { name: 'Hinzufügen' }).click();
+		await page.getByRole('button', { name: 'Hinzufügen', exact: true }).click();
 		await expect(page.getByText('Name ist erforderlich')).toBeVisible();
 	});
 

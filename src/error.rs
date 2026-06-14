@@ -17,7 +17,7 @@ pub enum AppError {
     BadRequest(String),
 
     #[error("database error: {0}")]
-    Database(#[from] rusqlite::Error),
+    Database(#[from] sqlx::Error),
 
     #[error("internal error: {0}")]
     Internal(String),
@@ -91,13 +91,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_database_error_when_into_response_then_returns_500() {
-        // Create a synthetic rusqlite error by attempting an impossible operation.
-        // We construct AppError::Database via the From impl.
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        let err = conn
-            .execute_batch("SELECT * FROM nonexistent_table")
-            .unwrap_err();
-        let app_err: AppError = err.into();
+        // Construct AppError::Database directly from a sqlx error.
+        let err = sqlx::Error::ColumnNotFound("nonexistent".into());
+        let app_err = AppError::Database(err);
         assert_response(app_err, StatusCode::INTERNAL_SERVER_ERROR, "database error").await;
     }
 

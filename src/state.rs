@@ -1,6 +1,6 @@
-use rusqlite::Connection;
-use tokio::sync::Mutex;
+use sqlx::SqlitePool;
 
+#[derive(Clone)]
 pub struct AppState {
-    pub conn: Mutex<Connection>,
+    pub pool: SqlitePool,
 }

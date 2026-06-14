@@ -7,8 +7,8 @@ mod static_assets;
 
 use std::sync::Arc;
 
-use axum::routing::get;
 use axum::Router;
+use axum::routing::{get, put};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -24,17 +24,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let db_path = std::env::var("MEALME_DB_PATH")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("meals.db"));
+        .unwrap_or_else(|_| {
+            std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("meals.db")
+        });
     info!("using database at {}", db_path.display());
 
-    let conn = db::init_db(&db_path).map_err(|e| {
+    let pool = db::init_db(&db_path).await.map_err(|e| {
         tracing::error!("failed to initialize database: {e}");
         e
     })?;
 
-    let state = Arc::new(AppState {
-        conn: tokio::sync::Mutex::new(conn),
-    });
+    let state = Arc::new(AppState { pool });
 
     let api = Router::new()
         .route("/meals", get(routes::list_meals).post(routes::create_meal))
@@ -43,6 +45,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(routes::get_meal)
                 .put(routes::update_meal)
                 .delete(routes::delete_meal),
+        )
+        .route("/plans", get(routes::get_plans).post(routes::create_plan))
+        .route(
+            "/plans/:year/:week",
+            put(routes::update_plan).delete(routes::delete_plan),
         )
         .with_state(state);
 

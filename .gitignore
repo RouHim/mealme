@@ -3,6 +3,9 @@ target/
 
 # SQLite database (generated at runtime)
 meals.db
+# SQLite WAL/SHM files (runtime artifacts)
+meals.db-shm
+meals.db-wal
 
 # Node dependencies
 node_modules/

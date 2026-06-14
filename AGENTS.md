@@ -64,9 +64,11 @@ cargo clippy
 cd web && npm run dev
 ```
 
-**Build-time requirement**: Node.js 26+ (only during `build.rs` execution; not needed at runtime).
+**Build-time requirement**: Node.js 26+ (only during `build.rs` execution; not needed at runtime). The `build.rs` step is a hard prerequisite of every `cargo build`; do not skip it via `cargo build --no-default-features` or by stubbing out `web/build/`.
 
 ## Code Conventions & Common Patterns
+
+For the higher-level engineering principles (SOLID, YAGNI, error surfacing) see `## Engineering Principles` below; this section covers the file-level mechanics.
 
 ### Rust
 
@@ -87,7 +89,11 @@ cd web && npm run dev
 - Route tests: `#[tokio::test]`, use `tower::ServiceExt::oneshot` to send `Request` objects to the router. Helper `TestCtx` struct holds the app and temp directory.
 - Naming convention: `given_<precondition>_when_<action>_then_<expected_result>`.
 
-**Dependencies**: Minimal crates — `axum` (http1+json+query+macros), `rusqlite` (bundled), `serde`/`serde_json`, `chrono`, `tokio`, `tracing`/`tracing-subscriber`, `thiserror`, `rust-embed`. Dev: `tempfile`, `tower` (util).
+**Dependencies**:
+- Keep external crates as low as possible; prefer `std` and built-in features (e.g., `tokio` is already in the tree — use its `sync::Mutex`, not `parking_lot`).
+- Before adding a third-party crate, evaluate the trade-off: maintenance burden, transitive deps, MSRV impact, and whether `std` or an existing dep already covers it.
+- Pin the very latest stable version available on crates.io at the time of introduction; bump via `cargo upgrade` and review changelogs for breaking changes.
+- Current set: `axum` (http1+json+query+macros), `rusqlite` (bundled), `serde`/`serde_json`, `chrono`, `tokio`, `tracing`/`tracing-subscriber`, `thiserror`, `rust-embed`. Dev: `tempfile`, `tower` (util only).
 
 ### Frontend (Svelte 5 + TypeScript)
 
@@ -104,6 +110,28 @@ cd web && npm run dev
 **Styling**: Single `app.css` — system-ui font, 720px max-width centered layout, minimal clean styling. No CSS framework.
 
 **TypeScript**: Strict mode, `moduleResolution: "bundler"`. Types in `web/src/lib/types.ts`: `Meal` interface and `MealPayload`.
+
+## Engineering Principles
+
+### SOLID
+
+One-line summary: each principle maps directly to a project convention — follow them to keep the codebase maintainable and testable.
+- **Single Responsibility**: one file = one concern (already encoded in the file-structure rule above).
+- **Open/Closed**: extend behavior by adding new route handlers or DB functions rather than mutating existing ones whose tests are green.
+- **Liskov Substitution**: handlers and DB functions are called through their concrete return types; no subtype-swap tricks. Listed for completeness — not a current concern.
+- **Interface Segregation**: prefer narrow function signatures over fat `AppState` accessors; pass only the needed value (e.g., the `MutexGuard`) into helpers.
+- **Dependency Inversion**: handlers depend on `AppState` (a concrete struct); DB-free logic lives in pure functions that take their inputs by value, keeping them testable without a DB.
+
+### YAGNI
+
+Don't add functionality, configuration knobs, abstractions, or `mod` directories until a concrete caller needs them.
+If a function has no call site, delete it — no commented-out scaffolds, no `#[allow(dead_code)]` to keep a future placeholder.
+
+### UX & Error Surfacing
+
+- Handle user interactions gracefully: every HTTP error path returns a structured JSON `{"error": "..."}` body with the correct status code; the frontend renders it inline — never an uncaught `unwrap` panic surfaces a 500 with no body.
+- Surface actionable errors to the UI: messages name the offending field and the constraint (e.g., `name must be 1–200 characters`), not a bare `invalid input`.
+- Validation runs in `db::validate_meal` before any DB write; the frontend calls the same `validateMeal()` helper from `$lib/validation.ts` to mirror the constraint.
 
 ## Important Files
 
@@ -123,17 +151,26 @@ cd web && npm run dev
 | `web/src/routes/+page.svelte` | Entire app UI — form, list, search, edit, delete |
 | `web/src/lib/api.ts` | Fetch client for all API endpoints |
 
+## Workflow Practices
+
+1. **Web search second opinion**: when planning a non-trivial feature, do not rely solely on training data — run a web search (or `mcp__context_query_docs` for libraries) to confirm current best practices, latest API shape, and any deprecations since the model's cutoff. Record the source in the plan's Research Notes if it changes the design.
+2. **Lint before done**: before finishing any task, run `cargo fmt`, then `cargo clippy --all-targets --all-features -- -D warnings` on the Rust side and `cd web && npm run check` on the frontend. CI gating policy (when CI is added): these must all pass before merge.
+3. **Consistent style**: match the existing file's formatting (4-space indent, no trailing whitespace, `rustfmt` defaults), so a reviewer can read the diff rather than the new file.
+
 ## Runtime/Tooling Preferences
 
 - **Rust**: 1.85+ (edition 2024). Use `rustfmt` and `clippy`.
 - **Node.js**: 26+ (build-time only, for SvelteKit/Vite compilation).
-- **Package manager**: npm (no pnpm/yarn/bun).
 - **Port**: `127.0.0.1:11341` (hardcoded in `main.rs`).
+- **Package manager**: npm only (no pnpm/yarn/bun). Commit `package-lock.json`; regenerate only via `npm install`.
 - **Database**: SQLite via `rusqlite` with `bundled` feature — no system SQLite needed.
-- **TLS**: `rustls` (project rule: no OpenSSL), though no TLS endpoints exist yet.
+- **TLS**: `rustls` only (project rule: no OpenSSL / no `native-tls`). No TLS endpoints today, but any future TLS feature must use a `rustls`-based crate (e.g., `rustls`, `reqwest` with `rustls-tls` feature).
 - **No CI config**: No `.github/workflows/`, `Jenkinsfile`, or `Makefile` exists at time of writing.
 
 ## Testing & QA
+
+Follow **TDD**: write the failing test first, watch it fail, then implement the smallest change to make it pass; refactor only after green. This applies to both Rust (`#[cfg(test)]` and route integration tests) and the frontend (`*.test.ts`).
+All tests are written in **BDD** style: name them by behavior, not implementation. Rust: `given_<precondition>_when_<action>_then_<expected_result>`. Frontend: `describe('<unit>', () => { it('<observable behavior>', ...) })`. BDD names double as living documentation.
 
 ### Rust tests (`cargo test`)
 
@@ -144,6 +181,8 @@ cd web && npm run dev
 - **Model layer** (`model.rs`, ~3 tests): Serde round-trip and field deserialization.
 - **Static assets** (`static_assets.rs`, ~3 tests): Verify SPA fallback returns index.html, correct MIME types.
 - **Isolation**: Every test uses `tempfile::TempDir` for fresh databases. No shared state between tests.
+- **TDD workflow**: for any new DB function or route handler, add the failing test inside the same `#[cfg(test)] mod tests` block, run `cargo test -- <test_name>`, watch red, then implement.
+- **No unwrap/expect in non-test code** is the production rule; tests may use them freely, but prefer `assert_eq!` / `assert!` with a failure message naming the precondition.
 
 ### Frontend tests (`cd web && npm test`)
 
@@ -151,6 +190,7 @@ cd web && npm run dev
 - **API tests** (`api.test.ts`, ~6 tests): Mock `fetch`, verify correct URL/method/body/headers for each API function, test error message extraction.
 - **Validation tests** (`validation.test.ts`, ~8 tests): Boundary and edge-case validation (empty, whitespace, exact-limit, one-over-limit).
 - **Page validation tests** (`page-validation.test.ts`, ~7 tests): Same validation logic imported via `$lib` alias (duplicate coverage from page level).
+- **TDD workflow**: write the failing Vitest case first (`it(...)` with the observable behavior in the name), run `cd web && npm test -- -t <name>` to confirm red, then implement.
 
 ### E2E tests
 

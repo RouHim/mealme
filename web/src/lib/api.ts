@@ -1,4 +1,4 @@
-import type { Meal, MealPayload } from './types';
+import type { Meal, MealPayload, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
 	const response = await fetch(url, options);
@@ -43,6 +43,42 @@ export async function updateMeal(id: number, payload: MealPayload): Promise<Meal
 
 export async function deleteMeal(id: number): Promise<void> {
 	return request<void>(`/api/meals/${id}`, {
+		method: 'DELETE'
+	});
+}
+
+// Plan API
+
+export async function listPlansForYear(year: number): Promise<PlanSummaryItem[]> {
+	const raw = await request<unknown>(`/api/plans?year=${year}`);
+	if (!Array.isArray(raw)) throw new Error('expected array');
+	return raw as PlanSummaryItem[];
+}
+
+export async function getPlan(year: number, week: number): Promise<Plan> {
+	const raw = await request<unknown>(`/api/plans?year=${year}&week=${week}`);
+	if (Array.isArray(raw)) throw new Error('expected plan, got array');
+	return raw as Plan;
+}
+
+export async function createPlan(payload: NewPlanRequest): Promise<Plan> {
+	return request<Plan>('/api/plans', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function updatePlan(year: number, week: number, payload: PlanPatch): Promise<Plan> {
+	return request<Plan>(`/api/plans/${year}/${week}`, {
+		method: 'PUT',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function deletePlan(year: number, week: number): Promise<void> {
+	return request<void>(`/api/plans/${year}/${week}`, {
 		method: 'DELETE'
 	});
 }

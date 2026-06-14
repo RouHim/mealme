@@ -1,22 +1,24 @@
 <script lang="ts">
 	import { listMeals, createMeal, updateMeal, deleteMeal } from '$lib/api';
 	import { validateMeal } from '$lib/validation';
-	import type { Meal } from '$lib/types';
+	import type { Meal, NewIngredientLine } from '$lib/types';
 	import { t, setLocale, getLocale } from '$lib/i18n';
 
 	import { fly, fade, scale } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
 	import { transitionDuration, prefersReducedMotion } from '$lib/motion';
 	import Icon from '$lib/Icon.svelte';
+
 	let meals = $state<Meal[]>([]);
 	let searchTerm = $state('');
 	let editingId = $state<number | null>(null);
 	let formName = $state('');
-	let formIngredients = $state('');
+	let formIngredients = $state<NewIngredientLine[]>([{ name: '', quantity: null }]);
 	let formError = $state<string | null>(null);
 	let loadError = $state<string | null>(null);
 	let submitting = $state(false);
 	let reduced = $state(prefersReducedMotion());
+
 	$effect(() => {
 		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
 		const handler = (e: MediaQueryListEvent) => (reduced = e.matches);
@@ -46,9 +48,14 @@
 		return () => clearTimeout(handle);
 	});
 
+	function validIngredientLines(): NewIngredientLine[] {
+		return formIngredients.filter(r => r.name.trim().length > 0);
+	}
+
 	async function onSubmit() {
 		formError = null;
-		const result = validateMeal(formName, formIngredients);
+		const valid = validIngredientLines();
+		const result = validateMeal(formName, valid);
 		if (!result.ok) {
 			formError = t(result.messageKey);
 			return;
@@ -56,12 +63,12 @@
 		submitting = true;
 		try {
 			if (editingId !== null) {
-				await updateMeal(editingId, { name: formName.trim(), ingredients: formIngredients.trim() });
+				await updateMeal(editingId, { name: formName.trim(), ingredients: valid });
 			} else {
-				await createMeal({ name: formName.trim(), ingredients: formIngredients.trim() });
+				await createMeal({ name: formName.trim(), ingredients: valid });
 			}
 			formName = '';
-			formIngredients = '';
+			formIngredients = [{ name: '', quantity: null }];
 			editingId = null;
 			formError = null;
 			await loadMeals();
@@ -76,15 +83,25 @@
 	function startEdit(meal: Meal) {
 		editingId = meal.id;
 		formName = meal.name;
-		formIngredients = meal.ingredients;
+		formIngredients = meal.ingredients.length > 0
+			? meal.ingredients.map(i => ({ name: i.name, quantity: i.quantity }))
+			: [{ name: '', quantity: null }];
 		formError = null;
 	}
 
 	function cancelEdit() {
 		editingId = null;
 		formName = '';
-		formIngredients = '';
+		formIngredients = [{ name: '', quantity: null }];
 		formError = null;
+	}
+
+	function addIngredientRow() {
+		formIngredients = [...formIngredients, { name: '', quantity: null }];
+	}
+
+	function removeIngredientRow(idx: number) {
+		formIngredients = formIngredients.filter((_, i) => i !== idx);
 	}
 
 	async function onDelete(meal: Meal) {
@@ -97,6 +114,10 @@
 			loadError = raw === '__REQUEST_FAILED__' ? t('errorDeleteFailed') : raw;
 		}
 	}
+
+	function ingredientPreview(meal: Meal): string {
+		return meal.ingredients.map(i => i.quantity ? `${i.name} (${i.quantity})` : i.name).join(', ');
+	}
 </script>
 
 <main>
@@ -105,15 +126,18 @@
 			<h1>{t('appTitle')}</h1>
 			<p class="page-header__subtitle">{t('appSubtitle')}</p>
 		</div>
-		<button
-			type="button"
-			class="lang-toggle"
-			onclick={() => setLocale(getLocale() === 'en' ? 'de' : 'en')}
-			aria-label={getLocale() === 'en' ? t('toggleToGerman') : t('toggleToEnglish')}
-			aria-pressed={getLocale() === 'de'}
-		>
-			{getLocale() === 'en' ? 'DE' : 'EN'}
-		</button>
+		<div class="page-header__right">
+			<a href="/planner" class="nav-link">{t('navPlanner')}</a>
+			<button
+				type="button"
+				class="lang-toggle"
+				onclick={() => setLocale(getLocale() === 'en' ? 'de' : 'en')}
+				aria-label={getLocale() === 'en' ? t('toggleToGerman') : t('toggleToEnglish')}
+				aria-pressed={getLocale() === 'de'}
+			>
+				{getLocale() === 'en' ? 'DE' : 'EN'}
+			</button>
+		</div>
 	</header>
 
 	<div class="search">
@@ -152,15 +176,43 @@
 					maxlength={200}
 				/>
 			</label>
-			<label class="field">
-				<span class="field__label">{t('fieldIngredientsLabel')}</span>
-				<textarea
-					rows="6"
-					bind:value={formIngredients}
-					placeholder={t('fieldIngredientsPlaceholder')}
-					maxlength={5000}
-				></textarea>
-			</label>
+			<fieldset class="field">
+				<legend class="field__label">{t('fieldIngredientsLabel')}</legend>
+				<div class="ingredient-rows">
+					{#each formIngredients as ing, i (i)}
+						<div class="ingredient-row">
+							<input
+								type="text"
+								bind:value={ing.name}
+								placeholder={t('fieldIngredientName')}
+								maxlength={100}
+								aria-label="{t('fieldIngredientName')} {i + 1}"
+							/>
+							<input
+								type="text"
+								value={ing.quantity ?? ''}
+								oninput={(e) => { ing.quantity = (e.target as HTMLInputElement).value || null; }}
+								placeholder={t('fieldIngredientQuantity')}
+								maxlength={50}
+								class="ingredient-row__quantity"
+							/>
+							<button type="button" class="btn btn--ghost btn--icon"
+								onclick={() => removeIngredientRow(i)}
+								aria-label={t('fieldIngredientRemove')}
+								disabled={formIngredients.length <= 1}
+							>
+								<Icon name="trash" size={16} />
+							</button>
+						</div>
+					{/each}
+				</div>
+				<button type="button" class="btn btn--ghost"
+					onclick={addIngredientRow}
+					disabled={formIngredients.length >= 100}
+				>
+					<Icon name="plus" size={14} /> {t('fieldIngredientAdd')}
+				</button>
+			</fieldset>
 			{#if formError}
 				<p class="form-error" role="alert">
 					<Icon name="alert" size={18} />
@@ -208,9 +260,7 @@
 					>
 						<h3 class="meal-card__name">{meal.name}</h3>
 						<p class="meal-card__ingredients">
-							{meal.ingredients.length > 120
-								? meal.ingredients.slice(0, 120) + '…'
-								: meal.ingredients}
+							{ingredientPreview(meal)}
 						</p>
 						<div class="meal-card__actions">
 							<button type="button" class="btn btn--ghost" onclick={() => startEdit(meal)}>{t('buttonEdit')}</button>
@@ -234,6 +284,20 @@
 		margin: 0;
 		color: var(--color-text-secondary);
 		font-size: var(--text-base);
+	}
+	.page-header__right {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+	}
+	.nav-link {
+		color: var(--color-primary);
+		text-decoration: none;
+		font-weight: var(--weight-medium);
+		font-size: var(--text-sm);
+	}
+	.nav-link:hover {
+		text-decoration: underline;
 	}
 	.lang-toggle {
 		flex-shrink: 0;
@@ -267,6 +331,36 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
+	}
+	fieldset.field {
+		border: none;
+		padding: 0;
+		margin: 0;
+	}
+	.ingredient-rows {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.ingredient-row {
+		display: flex;
+		gap: var(--space-2);
+		align-items: center;
+	}
+	.ingredient-row input {
+		flex: 1;
+		min-width: 0;
+	}
+	.ingredient-row__quantity {
+		max-width: 140px;
+	}
+	.btn--icon {
+		padding: var(--space-1);
+		min-width: 36px;
+		min-height: 36px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 	.form-card__actions {
 		display: flex;

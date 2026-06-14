@@ -14,10 +14,11 @@ test.describe('View meals', () => {
 
 	test('shows meal name and ingredients preview after a meal is added', async ({ page }) => {
 		await page.goto('/');
-		await createMeal(page, 'Pasta', 'noodles, sauce');
+		await createMeal(page, 'Pasta', [{ name: 'noodles' }, { name: 'sauce' }]);
 
 		const item = page.getByRole('listitem').filter({ hasText: 'Pasta' });
 		await expect(item).toBeVisible();
-		await expect(item).toContainText('noodles, sauce');
+		await expect(item).toContainText('noodles');
+		await expect(item).toContainText('sauce');
 	});
 });

@@ -1,8 +1,9 @@
 import type { TranslationKey } from './i18n/types';
+import type { NewIngredientLine } from './types';
 
 type ValidationResult = { ok: true } | { ok: false; field: 'name' | 'ingredients'; messageKey: TranslationKey };
 
-export function validateMeal(name: string, ingredients: string): ValidationResult {
+export function validateMeal(name: string, ingredients: NewIngredientLine[]): ValidationResult {
 	const nameTrim = name.trim();
 	if (nameTrim.length === 0) {
 		return { ok: false, field: 'name', messageKey: 'validationNameRequired' };
@@ -10,12 +11,23 @@ export function validateMeal(name: string, ingredients: string): ValidationResul
 	if (nameTrim.length > 200) {
 		return { ok: false, field: 'name', messageKey: 'validationNameTooLong' };
 	}
-	const ingTrim = ingredients.trim();
-	if (ingTrim.length === 0) {
+	if (ingredients.length === 0) {
 		return { ok: false, field: 'ingredients', messageKey: 'validationIngredientsRequired' };
 	}
-	if (ingTrim.length > 5000) {
-		return { ok: false, field: 'ingredients', messageKey: 'validationIngredientsTooLong' };
+	if (ingredients.length > 100) {
+		return { ok: false, field: 'ingredients', messageKey: 'validationTooManyIngredients' };
+	}
+	for (let i = 0; i < ingredients.length; i++) {
+		const line = ingredients[i];
+		if (line.name.trim().length === 0) {
+			return { ok: false, field: 'ingredients', messageKey: 'validationIngredientNameRequired' };
+		}
+		if (line.name.trim().length > 100) {
+			return { ok: false, field: 'ingredients', messageKey: 'validationIngredientNameTooLong' };
+		}
+		if (line.quantity && line.quantity.length > 50) {
+			return { ok: false, field: 'ingredients', messageKey: 'validationIngredientQuantityTooLong' };
+		}
 	}
 	return { ok: true };
 }

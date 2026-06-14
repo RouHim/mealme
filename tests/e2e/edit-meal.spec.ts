@@ -9,23 +9,23 @@ test.describe('Edit meal', () => {
 
 	test('pre-populates form with current values', async ({ page }) => {
 		await page.goto('/');
-		await createMeal(page, 'Pasta', 'noodles, sauce');
+		await createMeal(page, 'Pasta', [{ name: 'noodles' }, { name: 'sauce' }]);
 
 		const item = page.getByRole('listitem').filter({ hasText: 'Pasta' });
 		await item.getByRole('button', { name: 'Edit' }).click();
 
-		await expect(page.getByLabel('Name')).toHaveValue('Pasta');
-		await expect(page.getByLabel('Ingredients')).toHaveValue('noodles, sauce');
+		await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Pasta');
+		await expect(page.getByRole('textbox', { name: 'Ingredient name 1' })).toHaveValue('noodles');
 	});
 
 	test('updates the meal and reflects change in the list', async ({ page }) => {
 		await page.goto('/');
-		await createMeal(page, 'Pasta', 'noodles, sauce');
+		await createMeal(page, 'Pasta', [{ name: 'noodles' }, { name: 'sauce' }]);
 
 		const item = page.getByRole('listitem').filter({ hasText: 'Pasta' });
 		await item.getByRole('button', { name: 'Edit' }).click();
 
-		await page.getByLabel('Name').fill('Pasta Carbonara');
+		await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Pasta Carbonara');
 		await page.getByRole('button', { name: 'Save' }).click();
 
 		await expect(page.getByRole('listitem').filter({ hasText: 'Pasta Carbonara' })).toBeVisible();

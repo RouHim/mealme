@@ -23,9 +23,26 @@ export async function resetMeals(request: APIRequestContext): Promise<void> {
 	await Promise.all(meals.map((m) => request.delete(`/api/meals/${m.id}`)));
 }
 
-export async function createMeal(page: Page, name: string, ingredients: string): Promise<void> {
-	await page.getByLabel('Name').fill(name);
-	await page.getByLabel('Ingredients').fill(ingredients);
+export async function createMeal(
+	page: Page,
+	name: string,
+	ingredients: Array<{ name: string; quantity?: string }>
+): Promise<void> {
+	// Meal name — use exact role match to avoid ambiguity with ingredient name fields
+	await page.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
+	// Fill each ingredient row
+	for (let i = 0; i < ingredients.length; i++) {
+		const ing = ingredients[i];
+		if (i > 0) {
+			await page.getByRole('button', { name: /^Add ingredient$|^Zutat hinzufügen$/ }).click();
+		}
+		const rowLabel = `Ingredient name ${i + 1}`;
+		await page.getByRole('textbox', { name: rowLabel }).fill(ing.name);
+		if (ing.quantity) {
+			// Quantity is the second textbox in the same row
+			await page.getByPlaceholder('Quantity').nth(i).fill(ing.quantity);
+		}
+	}
 	await page.getByRole('button', { name: /^(Add|Hinzufügen)$/ }).click();
 	await expect(page.getByRole('listitem').filter({ hasText: name })).toBeVisible();
 }

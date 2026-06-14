@@ -9,7 +9,7 @@ test.describe('Delete meal', () => {
 
 	test('accepting the confirmation removes the meal', async ({ page }) => {
 		await page.goto('/');
-		await createMeal(page, 'Soup', 'water, salt');
+		await createMeal(page, 'Soup', [{ name: 'water' }, { name: 'salt' }]);
 
 		page.once('dialog', (d) => d.accept());
 
@@ -21,7 +21,7 @@ test.describe('Delete meal', () => {
 
 	test('dismissing the confirmation keeps the meal', async ({ page }) => {
 		await page.goto('/');
-		await createMeal(page, 'Soup', 'water, salt');
+		await createMeal(page, 'Soup', [{ name: 'water' }, { name: 'salt' }]);
 
 		page.once('dialog', (d) => d.dismiss());
 

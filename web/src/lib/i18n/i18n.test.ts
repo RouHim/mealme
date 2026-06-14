@@ -208,3 +208,11 @@ describe('formatDate', () => {
 		expect(result).toBe('13. Juni 2026');
 	});
 });
+
+describe('dictionary key parity', () => {
+	it('has identical keys across en and de dictionaries', () => {
+		const enKeys = Object.keys(dictionaries.en).sort();
+		const deKeys = Object.keys(dictionaries.de).sort();
+		expect(enKeys).toEqual(deKeys);
+	});
+});
