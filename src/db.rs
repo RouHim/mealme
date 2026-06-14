@@ -348,6 +348,13 @@ pub async fn delete_meal(pool: &SqlitePool, id: i64) -> Result<(), AppError> {
     Ok(())
 }
 
+pub async fn meals_count(pool: &SqlitePool) -> Result<i64, AppError> {
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM meals")
+        .fetch_one(pool)
+        .await?;
+    Ok(count)
+}
+
 // ---------------------------------------------------------------------------
 // Week math (simple calendar weeks, week 1 = week containing Jan 1, Monday start)
 // ---------------------------------------------------------------------------
@@ -816,13 +823,21 @@ mod tests {
         .expect("insert_test_meal")
     }
 
-    #[allow(dead_code)]
-    async fn meals_exist(pool: &SqlitePool) -> bool {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM meals")
-            .fetch_one(pool)
-            .await
-            .unwrap_or(0);
-        count > 0
+    // -----------------------------------------------------------------------
+    // meals_count
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn given_empty_db_when_meals_count_then_returns_zero() {
+        let (pool, _dir) = setup_db().await;
+        assert_eq!(meals_count(&pool).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn given_one_meal_inserted_when_meals_count_then_returns_one() {
+        let (pool, _dir) = setup_db().await;
+        insert_test_meal(&pool, "Test", &[("salt", None)]).await;
+        assert_eq!(meals_count(&pool).await.unwrap(), 1);
     }
 
     // -----------------------------------------------------------------------
