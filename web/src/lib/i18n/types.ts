@@ -60,4 +60,12 @@ export type TranslationKey =
 	| 'plannerPickMeals'
 	| 'plannerPickMealsHelp'
 	| 'plannerRemove'
-	| 'plannerAddMeal';
+	| 'plannerAddMeal'
+	| 'fieldImageLabel'
+	| 'fieldImageChoose'
+	| 'fieldImageReplace'
+	| 'fieldImageCurrent'
+	| 'fieldImageRemove'
+	| 'imageStaged'
+	| 'imageStagedRemove'
+	| 'lightboxClose';

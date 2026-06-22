@@ -236,6 +236,7 @@
 
 				<div class="plan-actions">
 					<button class="btn btn--danger-ghost" onclick={onDeletePlan}>
+						<Icon name="trash" size={16} />
 						{t('buttonDelete')}
 					</button>
 				</div>
@@ -268,8 +269,8 @@
 			<div class="meal-picker" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 				<div class="meal-picker__header">
 					<h3>{t('plannerPickMeals')}</h3>
-					<button class="btn btn--ghost btn--icon" onclick={() => mealPickerOpen = false}>
-						<Icon name="alert" size={18} />
+					<button class="btn btn--ghost btn--icon" onclick={() => mealPickerOpen = false} aria-label={t('plannerClose')}>
+						<Icon name="x" size={18} />
 					</button>
 				</div>
 				<input

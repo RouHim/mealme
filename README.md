@@ -10,7 +10,7 @@ cargo run --release
 
 Then open **http://127.0.0.1:11341** in your browser.
 
-The server listens on `127.0.0.1:11341` and persists data in `./meals.db` (SQLite, auto-created on first run).
+The server listens on `127.0.0.1:11341` and persists data in `./data/meals.db` (SQLite, auto-created on first run; override the directory with the `MEALME_DATA_DIR` env var).
 
 ## Requirements
 

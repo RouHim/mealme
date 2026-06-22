@@ -61,4 +61,12 @@ export const de: Record<TranslationKey, string> = {
 	plannerPickMealsHelp: 'Suche und füge Mahlzeiten zu diesem Plan hinzu',
 	plannerRemove: 'Entfernen',
 	plannerAddMeal: 'Zum Plan hinzufügen',
+	fieldImageLabel: 'Bild',
+	fieldImageChoose: 'Bild auswählen\u2026',
+	fieldImageReplace: 'Bild ersetzen',
+	fieldImageCurrent: 'Aktuelles Bild',
+	fieldImageRemove: 'Bild entfernen',
+	imageStaged: 'Neues Bild ausgewählt',
+	imageStagedRemove: 'Bild wird entfernt',
+	lightboxClose: 'Schließen',
 };

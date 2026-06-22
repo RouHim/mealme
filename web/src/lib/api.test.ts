@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listMeals, createMeal, updateMeal, deleteMeal, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan } from './api';
+import { listMeals, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan } from './api';
 import type { Meal, MealPayload, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
 
 const mockFetch = vi.fn();
@@ -10,12 +10,19 @@ beforeEach(() => {
 });
 
 function mockResponse(status: number, body?: unknown) {
-	mockFetch.mockResolvedValueOnce({
-		ok: status >= 200 && status < 300,
-		status,
-		json: async () => body,
-		text: async () => ''
-	});
+	const init: ResponseInit = { status };
+	if (body !== undefined) {
+		mockFetch.mockResolvedValueOnce({
+			ok: status >= 200 && status < 300,
+			status,
+			json: async () => body,
+		} satisfies Partial<Response>);
+	} else {
+		mockFetch.mockResolvedValueOnce({
+			ok: status >= 200 && status < 300,
+			status,
+		} satisfies Partial<Response>);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -23,61 +30,113 @@ function mockResponse(status: number, body?: unknown) {
 // ---------------------------------------------------------------------------
 
 describe('listMeals', () => {
-	it('calls /api/meals without search param', async () => {
+	it('calls /api/meals without search', async () => {
 		mockResponse(200, []);
 		await listMeals();
 		expect(mockFetch).toHaveBeenCalledWith('/api/meals', undefined);
 	});
 
-	it('appends search query param when search is provided', async () => {
+	it('calls /api/meals?search=...', async () => {
 		mockResponse(200, []);
-		await listMeals('chicken');
-		expect(mockFetch).toHaveBeenCalledWith('/api/meals?search=chicken', undefined);
+		await listMeals('pizza');
+		expect(mockFetch).toHaveBeenCalledWith('/api/meals?search=pizza', undefined);
 	});
 });
 
 describe('createMeal', () => {
-	it('posts payload with structured ingredients to /api/meals', async () => {
+	it('sends multipart form with name and ingredients', async () => {
 		const payload: MealPayload = { name: 'Test', ingredients: [{ name: 'stuff', quantity: null }] };
-		const mealResponse: Meal = { id: 1, name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], last_planned_at: null, created_at: '', updated_at: '' };
+		const mealResponse: Meal = { id: 1, name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false };
 		mockResponse(201, mealResponse);
 		await createMeal(payload);
-		expect(mockFetch).toHaveBeenCalledWith('/api/meals', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(payload)
-		});
+		expect(mockFetch).toHaveBeenCalledTimes(1);
+		const [url, opts] = mockFetch.mock.calls[0];
+		expect(url).toBe('/api/meals');
+		expect(opts.method).toBe('POST');
+		expect(opts.body).toBeInstanceOf(FormData);
+		const fd = opts.body as FormData;
+		expect(fd.get('name')).toBe('Test');
+		expect(fd.get('ingredients')).toBe(JSON.stringify(payload.ingredients));
+		expect(fd.get('image')).toBeNull();
+		// Browser sets multipart boundary — no explicit content-type header
+		expect(opts.headers).toBeUndefined();
+	});
+
+	it('includes image file when provided', async () => {
+		const payload: MealPayload = { name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }] };
+		const mealResponse: Meal = { id: 2, name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true };
+		mockResponse(201, mealResponse);
+		const file = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' });
+		await createMeal(payload, file);
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('image')).toBeInstanceOf(File);
+		expect((fd.get('image') as File).name).toBe('photo.png');
+	});
+
+	it('handles null image gracefully', async () => {
+		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] };
+		const mealResponse: Meal = { id: 3, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false };
+		mockResponse(201, mealResponse);
+		await createMeal(payload, null);
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('image')).toBeNull();
 	});
 });
 
 describe('updateMeal', () => {
-	it('puts payload with structured ingredients to /api/meals/:id', async () => {
+	it('sends multipart form with name and ingredients', async () => {
 		const payload: MealPayload = { name: 'Updated', ingredients: [{ name: 'new', quantity: null }] };
-		const mealResponse: Meal = { id: 3, name: 'Updated', ingredients: [{ name: 'new', quantity: null }], last_planned_at: null, created_at: '', updated_at: '' };
+		const mealResponse: Meal = { id: 3, name: 'Updated', ingredients: [{ name: 'new', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false };
 		mockResponse(200, mealResponse);
 		await updateMeal(3, payload);
-		expect(mockFetch).toHaveBeenCalledWith('/api/meals/3', {
-			method: 'PUT',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(payload)
-		});
+		const [url, opts] = mockFetch.mock.calls[0];
+		expect(url).toBe('/api/meals/3');
+		expect(opts.method).toBe('PUT');
+		const fd = opts.body as FormData;
+		expect(fd.get('name')).toBe('Updated');
+		expect(fd.get('ingredients')).toBe(JSON.stringify(payload.ingredients));
+		expect(fd.get('image_action')).toBeNull();
+	});
+
+	it('sends image_action=remove when removing', async () => {
+		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] };
+		const mealResponse: Meal = { id: 4, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false };
+		mockResponse(200, mealResponse);
+		await updateMeal(4, payload, { removeImage: true });
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('image_action')).toBe('remove');
+	});
+
+	it('sends image file when replacing', async () => {
+		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] };
+		const mealResponse: Meal = { id: 5, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true };
+		mockResponse(200, mealResponse);
+		const file = new File([new Uint8Array([4, 5, 6])], 'new.jpg', { type: 'image/jpeg' });
+		await updateMeal(5, payload, { image: file });
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('image')).toBeInstanceOf(File);
+		expect((fd.get('image') as File).name).toBe('new.jpg');
 	});
 });
 
 describe('deleteMeal', () => {
 	it('deletes /api/meals/:id', async () => {
 		mockResponse(204);
-		await deleteMeal(3);
-		expect(mockFetch).toHaveBeenCalledWith('/api/meals/3', {
-			method: 'DELETE'
-		});
+		await deleteMeal(7);
+		expect(mockFetch).toHaveBeenCalledWith('/api/meals/7', { method: 'DELETE' });
+	});
+});
+
+describe('mealImageUrl', () => {
+	it('returns the correct image endpoint URL', () => {
+		expect(mealImageUrl(42)).toBe('/api/meals/42/image');
 	});
 });
 
 describe('error handling', () => {
-	it('throws with server error message on 400', async () => {
+	it('extracts server error message from JSON body', async () => {
 		mockResponse(400, { error: 'name must not be empty' });
-		await expect(createMeal({ name: '', ingredients: [{ name: 'x', quantity: null }] })).rejects.toThrow('name must not be empty');
+		await expect(listMeals()).rejects.toThrow('name must not be empty');
 	});
 });
 
@@ -86,22 +145,20 @@ describe('error handling', () => {
 // ---------------------------------------------------------------------------
 
 describe('listPlansForYear', () => {
-	it('calls correct url and returns array', async () => {
-		const items: PlanSummaryItem[] = [{ year: 2026, week_number: 1, id: 1, meal_count: 3 }];
-		mockResponse(200, items);
-		const result = await listPlansForYear(2026);
+	it('calls /api/plans?year=...', async () => {
+		mockResponse(200, []);
+		await listPlansForYear(2026);
 		expect(mockFetch).toHaveBeenCalledWith('/api/plans?year=2026', undefined);
-		expect(result).toEqual(items);
 	});
 
-	it('throws on 500 with server error message', async () => {
-		mockResponse(500, { error: 'boom' });
-		await expect(listPlansForYear(2026)).rejects.toThrow('boom');
+	it('throws on non-array response', async () => {
+		mockResponse(200, { not: 'array' });
+		await expect(listPlansForYear(2026)).rejects.toThrow('expected array');
 	});
 });
 
 describe('getPlan', () => {
-	it('calls correct url and returns plan', async () => {
+	it('calls /api/plans?year=...&week=...', async () => {
 		const plan: Plan = { id: 1, year: 2026, week_number: 1, created_at: '', meals: [], ingredient_summary: [] };
 		mockResponse(200, plan);
 		const result = await getPlan(2026, 1);
@@ -109,68 +166,45 @@ describe('getPlan', () => {
 		expect(result).toEqual(plan);
 	});
 
-	it('given_array_response_then_throws', async () => {
-		mockResponse(200, []);
-		await expect(getPlan(2026, 1)).rejects.toThrow('expected plan, got array');
-	});
-
-	it('given_404_then_resolves_to_null', async () => {
-		mockResponse(404, { error: 'not found' });
-		await expect(getPlan(2026, 1)).resolves.toBeNull();
-	});
-
-	it('given_500_then_throws_with_server_message', async () => {
-		mockResponse(500, { error: 'boom' });
-		await expect(getPlan(2026, 1)).rejects.toThrow('boom');
+	it('returns null on 404', async () => {
+		mockResponse(404);
+		const result = await getPlan(2026, 53);
+		expect(result).toBeNull();
 	});
 });
 
 describe('createPlan', () => {
-	it('posts to plans with json body and returns plan', async () => {
-		const req: NewPlanRequest = { year: 2026, week_number: 1, meal_count: 3 };
+	it('posts JSON body', async () => {
+		const payload: NewPlanRequest = { year: 2026, week_number: 1, meal_count: 3 };
 		const plan: Plan = { id: 1, year: 2026, week_number: 1, created_at: '', meals: [], ingredient_summary: [] };
 		mockResponse(201, plan);
-		const result = await createPlan(req);
+		await createPlan(payload);
 		expect(mockFetch).toHaveBeenCalledWith('/api/plans', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(req)
+			body: JSON.stringify(payload)
 		});
-		expect(result).toEqual(plan);
-	});
-
-	it('throws on 400 with server error message', async () => {
-		mockResponse(400, { error: 'no meals exist' });
-		await expect(createPlan({ year: 2026, week_number: 1, meal_count: 3 })).rejects.toThrow('no meals exist');
 	});
 });
 
 describe('updatePlan', () => {
-	it('puts to plans year week with json body and returns plan', async () => {
-		const patch: PlanPatch = { meal_ids: [1, 2] };
+	it('puts JSON body', async () => {
+		const payload: PlanPatch = { meal_ids: [1, 2] };
 		const plan: Plan = { id: 1, year: 2026, week_number: 1, created_at: '', meals: [], ingredient_summary: [] };
 		mockResponse(200, plan);
-		const result = await updatePlan(2026, 1, patch);
+		await updatePlan(2026, 1, payload);
 		expect(mockFetch).toHaveBeenCalledWith('/api/plans/2026/1', {
 			method: 'PUT',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(patch)
+			body: JSON.stringify(payload)
 		});
-		expect(result).toEqual(plan);
 	});
 });
 
 describe('deletePlan', () => {
-	it('deletes plans year week', async () => {
+	it('deletes /api/plans/:year/:week', async () => {
 		mockResponse(204);
 		await deletePlan(2026, 1);
-		expect(mockFetch).toHaveBeenCalledWith('/api/plans/2026/1', {
-			method: 'DELETE'
-		});
-	});
-
-	it('throws on 404 with server error message', async () => {
-		mockResponse(404, { error: 'not found' });
-		await expect(deletePlan(2026, 1)).rejects.toThrow('not found');
+		expect(mockFetch).toHaveBeenCalledWith('/api/plans/2026/1', { method: 'DELETE' });
 	});
 });

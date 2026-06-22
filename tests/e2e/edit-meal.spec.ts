@@ -12,6 +12,7 @@ test.describe('Edit meal', () => {
 		await createMeal(page, 'Pasta', [{ name: 'noodles' }, { name: 'sauce' }]);
 
 		const item = page.getByRole('listitem').filter({ hasText: 'Pasta' });
+		await item.hover();
 		await item.getByRole('button', { name: 'Edit' }).click();
 
 		await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Pasta');
@@ -23,6 +24,7 @@ test.describe('Edit meal', () => {
 		await createMeal(page, 'Pasta', [{ name: 'noodles' }, { name: 'sauce' }]);
 
 		const item = page.getByRole('listitem').filter({ hasText: 'Pasta' });
+		await item.hover();
 		await item.getByRole('button', { name: 'Edit' }).click();
 
 		await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Pasta Carbonara');

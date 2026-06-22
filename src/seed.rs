@@ -132,7 +132,7 @@ pub async fn run(pool: &sqlx::SqlitePool) -> Result<SeedOutcome, AppError> {
             name: name.to_string(),
             ingredients: ings,
         };
-        db::insert_meal(pool, new_meal).await?;
+        db::insert_meal(pool, new_meal, db::ImageChange::Keep).await?;
     }
 
     Ok(SeedOutcome::Inserted(15))
@@ -167,6 +167,7 @@ mod tests {
                     quantity: Some("1 tsp".into()),
                 }],
             },
+            db::ImageChange::Keep,
         )
         .await
         .expect("insert_one_meal")

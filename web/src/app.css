@@ -250,6 +250,23 @@ button {
 	display: flex;
 	gap: var(--space-2);
 	margin-top: auto;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity var(--transition-fast);
+}
+
+.meal-card:hover .meal-card__actions,
+.meal-card:focus-within .meal-card__actions,
+.meal-card--editing .meal-card__actions {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+@media (hover: none) {
+	.meal-card__actions {
+		opacity: 1;
+		pointer-events: auto;
+	}
 }
 
 /* Empty state */

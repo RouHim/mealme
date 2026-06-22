@@ -29,7 +29,7 @@ export default defineConfig({
 		stderr: 'pipe',
 		env: {
 			MEALME_PORT: '11342',
-			MEALME_DB_PATH: './.e2e-db/meals.db',
+			MEALME_DATA_DIR: './.e2e-db',
 		},
 	},
 });

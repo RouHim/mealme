@@ -9,6 +9,8 @@ pub struct Meal {
     pub last_planned_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default)]
+    pub has_image: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
@@ -80,10 +82,9 @@ pub struct PlanPatch {
 mod tests {
     #[allow(unused_imports)]
     use super::*;
-
     #[test]
     fn given_valid_meal_json_when_deserialize_then_fields_match() {
-        let json = r#"{"id":1,"name":"x","ingredients":[{"name":"y","quantity":null}],"last_planned_at":null,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#;
+        let json = r#"{"id":1,"name":"x","ingredients":[{"name":"y","quantity":null}],"last_planned_at":null,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","has_image":false}"#;
         let meal: Meal = serde_json::from_str(json).expect("should deserialize");
         assert_eq!(meal.id, 1);
         assert_eq!(meal.name, "x");
@@ -113,6 +114,7 @@ mod tests {
             updated_at: DateTime::parse_from_rfc3339("2026-06-13T12:00:00Z")
                 .unwrap()
                 .into(),
+            has_image: false,
         };
         let json = serde_json::to_string(&meal).expect("should serialize");
         let roundtripped: Meal = serde_json::from_str(&json).expect("should deserialize");
@@ -127,5 +129,13 @@ mod tests {
         assert_eq!(new_meal.ingredients.len(), 1);
         assert_eq!(new_meal.ingredients[0].name, "b");
         assert_eq!(new_meal.ingredients[0].quantity, None);
+    }
+
+    #[test]
+    fn given_meal_json_without_has_image_field_when_deserialize_then_defaults_to_false() {
+        // Older clients or persisted snapshots may omit has_image.
+        let json = r#"{"id":9,"name":"old","ingredients":[],"last_planned_at":null,"created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}"#;
+        let meal: Meal = serde_json::from_str(json).expect("should deserialize");
+        assert!(!meal.has_image);
     }
 }

@@ -10,6 +10,7 @@ export interface Meal {
 	last_planned_at: string | null; // ISO 8601 or null
 	created_at: string; // ISO 8601
 	updated_at: string; // ISO 8601
+	has_image: boolean;
 }
 
 export interface NewIngredientLine {

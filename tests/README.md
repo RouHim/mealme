@@ -27,6 +27,6 @@ cd tests && npx playwright test
 ## Architecture
 
 - `e2e/_helpers.ts` — shared helpers: `resetMeals()` (clears all meals via API) and `createMeal()`.
-- `playwright.config.ts` — webServer starts `cargo run` with `MEALME_PORT=11342` and `MEALME_DB_PATH=./.e2e-db/meals.db`, health-checks `GET /api/meals`.
+- `playwright.config.ts` — webServer starts `cargo run` with `MEALME_PORT=11342` and `MEALME_DATA_DIR=./.e2e-db`, health-checks `GET /api/meals`.
 
 Each test file calls `resetMeals()` in `beforeEach` for isolation. The `.e2e-db/` directory is gitignored.

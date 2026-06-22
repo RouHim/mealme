@@ -27,6 +27,21 @@ struct MealRow {
     last_planned_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    has_image: bool,
+}
+
+/// Convert a [`MealRow`] into a [`Meal`] (without ingredients — those are
+/// loaded separately by [`get_meal_ingredients`] or [`hydrate_meals`]).
+fn map_meal_row(row: MealRow) -> Meal {
+    Meal {
+        id: row.id,
+        name: row.name,
+        ingredients: Vec::new(),
+        last_planned_at: row.last_planned_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        has_image: row.has_image,
+    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -218,7 +233,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
         Some(term) => {
             let pattern = format!("%{}%", term.to_lowercase());
             sqlx::query_as::<_, MealRow>(
-                "SELECT DISTINCT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at
+                "SELECT DISTINCT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
                  FROM meals m
                  LEFT JOIN meal_ingredients mi ON mi.meal_id = m.id
                  LEFT JOIN ingredients i ON i.id = mi.ingredient_id
@@ -231,7 +246,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
         }
         None => {
             sqlx::query_as::<_, MealRow>(
-                "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at
+                "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
                  FROM meals m
                  ORDER BY m.updated_at DESC, m.id DESC",
             )
@@ -240,17 +255,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
         }
     };
 
-    let mut meals: Vec<Meal> = meal_rows
-        .into_iter()
-        .map(|row| Meal {
-            id: row.id,
-            name: row.name,
-            ingredients: Vec::new(),
-            last_planned_at: row.last_planned_at,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
-        .collect();
+    let mut meals: Vec<Meal> = meal_rows.into_iter().map(map_meal_row).collect();
 
     hydrate_meals(pool, &mut meals).await?;
     Ok(meals)
@@ -258,7 +263,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
 
 pub async fn find_meal(pool: &SqlitePool, id: i64) -> Result<Meal, AppError> {
     let row = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at
+        "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
          FROM meals m WHERE m.id = ?1",
     )
     .bind(id)
@@ -266,20 +271,17 @@ pub async fn find_meal(pool: &SqlitePool, id: i64) -> Result<Meal, AppError> {
     .await?
     .ok_or(AppError::NotFound)?;
 
-    let mut meal = Meal {
-        id: row.id,
-        name: row.name,
-        ingredients: Vec::new(),
-        last_planned_at: row.last_planned_at,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-    };
+    let mut meal = map_meal_row(row);
     let mut conn = pool.acquire().await?;
     meal.ingredients = get_meal_ingredients(&mut *conn, meal.id).await?;
     Ok(meal)
 }
 
-pub async fn insert_meal(pool: &SqlitePool, new: NewMeal) -> Result<Meal, AppError> {
+pub async fn insert_meal(
+    pool: &SqlitePool,
+    new: NewMeal,
+    image: ImageChange<'_>,
+) -> Result<Meal, AppError> {
     validate_meal(&new.name, &new.ingredients)?;
     let now = Utc::now();
 
@@ -297,12 +299,21 @@ pub async fn insert_meal(pool: &SqlitePool, new: NewMeal) -> Result<Meal, AppErr
     .await?;
 
     set_meal_ingredients(&mut *tx, id.0, &new.ingredients).await?;
+
+    if let ImageChange::Set(jpeg_bytes) = image {
+        set_meal_image(&mut *tx, id.0, jpeg_bytes).await?;
+    }
+
     tx.commit().await?;
 
     find_meal(pool, id.0).await
 }
-
-pub async fn update_meal(pool: &SqlitePool, id: i64, patch: MealPatch) -> Result<Meal, AppError> {
+pub async fn update_meal(
+    pool: &SqlitePool,
+    id: i64,
+    patch: MealPatch,
+    image: ImageChange<'_>,
+) -> Result<Meal, AppError> {
     validate_meal(&patch.name, &patch.ingredients)?;
     let now = Utc::now();
 
@@ -321,6 +332,17 @@ pub async fn update_meal(pool: &SqlitePool, id: i64, patch: MealPatch) -> Result
     }
 
     set_meal_ingredients(&mut *tx, id, &patch.ingredients).await?;
+
+    match image {
+        ImageChange::Set(jpeg_bytes) => {
+            set_meal_image(&mut *tx, id, jpeg_bytes).await?;
+        }
+        ImageChange::Clear => {
+            clear_meal_image(&mut *tx, id).await?;
+        }
+        ImageChange::Keep => {}
+    }
+
     tx.commit().await?;
 
     find_meal(pool, id).await
@@ -353,6 +375,82 @@ pub async fn meals_count(pool: &SqlitePool) -> Result<i64, AppError> {
         .fetch_one(pool)
         .await?;
     Ok(count)
+}
+
+// ---------------------------------------------------------------------------
+// Image helpers
+// ---------------------------------------------------------------------------
+
+/// Describes what to do with a meal's image during create or update.
+pub enum ImageChange<'a> {
+    /// Leave the image as-is (create with no image, or update keeping existing).
+    Keep,
+    /// Set or replace the image with these already-converted JPEG bytes.
+    Set(&'a [u8]),
+    /// Remove the image (update only).
+    Clear,
+}
+
+/// Set the image BLOB and content-type for a meal within an active transaction.
+pub async fn set_meal_image(
+    conn: &mut sqlx::SqliteConnection,
+    id: i64,
+    jpeg_bytes: &[u8],
+) -> Result<(), AppError> {
+    let now = Utc::now();
+    let affected = sqlx::query(
+        "UPDATE meals SET image = ?1, image_content_type = ?2, updated_at = ?3 WHERE id = ?4",
+    )
+    .bind(jpeg_bytes)
+    .bind(crate::image::JPEG_CONTENT_TYPE)
+    .bind(now)
+    .bind(id)
+    .execute(&mut *conn)
+    .await?
+    .rows_affected();
+    if affected == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(())
+}
+
+/// Clear the image BLOB and content-type for a meal within an active transaction.
+pub async fn clear_meal_image(conn: &mut sqlx::SqliteConnection, id: i64) -> Result<(), AppError> {
+    let now = Utc::now();
+    let affected = sqlx::query(
+        "UPDATE meals SET image = NULL, image_content_type = NULL, updated_at = ?1 WHERE id = ?2",
+    )
+    .bind(now)
+    .bind(id)
+    .execute(&mut *conn)
+    .await?
+    .rows_affected();
+    if affected == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(())
+}
+
+/// Fetch the image bytes and content-type for a meal.
+/// Returns `None` when the meal has no image or doesn't exist.
+pub async fn find_meal_image(
+    pool: &SqlitePool,
+    id: i64,
+) -> Result<Option<(Vec<u8>, String)>, AppError> {
+    let row = sqlx::query(
+        "SELECT image, image_content_type FROM meals WHERE id = ?1 AND image IS NOT NULL",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    match row {
+        Some(r) => {
+            let bytes: Vec<u8> = r.get(0);
+            let ct: String = r.get(1);
+            Ok(Some((bytes, ct)))
+        }
+        None => Ok(None),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -435,7 +533,7 @@ pub async fn select_meals_weighted(
     count: usize,
 ) -> Result<Vec<Meal>, AppError> {
     let meal_rows = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at
+        "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
          FROM meals m
          ORDER BY m.updated_at DESC, m.id DESC",
     )
@@ -446,17 +544,7 @@ pub async fn select_meals_weighted(
         return Ok(Vec::new());
     }
 
-    let mut meals: Vec<Meal> = meal_rows
-        .into_iter()
-        .map(|row| Meal {
-            id: row.id,
-            name: row.name,
-            ingredients: Vec::new(),
-            last_planned_at: row.last_planned_at,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
-        .collect();
+    let mut meals: Vec<Meal> = meal_rows.into_iter().map(map_meal_row).collect();
 
     for meal in &mut meals {
         meal.ingredients = get_meal_ingredients(&mut *conn, meal.id).await?;
@@ -588,7 +676,7 @@ pub async fn aggregate_plan_ingredients(
 
 pub async fn get_plan_meals(pool: &SqlitePool, plan_id: i64) -> Result<Vec<Meal>, AppError> {
     let meal_rows = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at
+        "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
          FROM plan_meals pm
          JOIN meals m ON m.id = pm.meal_id
          WHERE pm.plan_id = ?1
@@ -598,17 +686,7 @@ pub async fn get_plan_meals(pool: &SqlitePool, plan_id: i64) -> Result<Vec<Meal>
     .fetch_all(pool)
     .await?;
 
-    let mut meals: Vec<Meal> = meal_rows
-        .into_iter()
-        .map(|row| Meal {
-            id: row.id,
-            name: row.name,
-            ingredients: Vec::new(),
-            last_planned_at: row.last_planned_at,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
-        .collect();
+    let mut meals: Vec<Meal> = meal_rows.into_iter().map(map_meal_row).collect();
 
     hydrate_meals(pool, &mut meals).await?;
     Ok(meals)
@@ -818,6 +896,7 @@ mod tests {
                     })
                     .collect(),
             },
+            ImageChange::Keep,
         )
         .await
         .expect("insert_test_meal")
@@ -947,6 +1026,7 @@ mod tests {
                     quantity: None,
                 }],
             },
+            ImageChange::Keep,
         )
         .await;
         let meal = result.expect("should succeed");
@@ -966,6 +1046,7 @@ mod tests {
                     quantity: None,
                 }],
             },
+            ImageChange::Keep,
         )
         .await;
         match &result {
@@ -986,6 +1067,7 @@ mod tests {
                     quantity: None,
                 }],
             },
+            ImageChange::Keep,
         )
         .await;
         match &result {
@@ -1006,6 +1088,7 @@ mod tests {
                     quantity: None,
                 }],
             },
+            ImageChange::Keep,
         )
         .await;
         match &result {
@@ -1334,6 +1417,7 @@ mod tests {
                     quantity: Some("200g".into()),
                 }],
             },
+            ImageChange::Keep,
         )
         .await;
         let meal = result.expect("insert_meal");
@@ -1362,6 +1446,7 @@ mod tests {
                     quantity: None,
                 }],
             },
+            ImageChange::Keep,
         )
         .await
         .expect("update_meal");
@@ -1395,6 +1480,7 @@ mod tests {
                     quantity: None,
                 }],
             },
+            ImageChange::Keep,
         )
         .await
         .expect("update_meal");
@@ -1421,6 +1507,7 @@ mod tests {
                     quantity: None,
                 }],
             },
+            ImageChange::Keep,
         )
         .await;
         match &result {

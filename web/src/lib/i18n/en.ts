@@ -61,4 +61,12 @@ export const en: Record<TranslationKey, string> = {
 	plannerPickMealsHelp: 'Search and add meals to this plan',
 	plannerRemove: 'Remove',
 	plannerAddMeal: 'Add to plan',
+	fieldImageLabel: 'Image',
+	fieldImageChoose: 'Choose image\u2026',
+	fieldImageReplace: 'Replace image',
+	fieldImageCurrent: 'Current image',
+	fieldImageRemove: 'Remove image',
+	imageStaged: 'New image selected',
+	imageStagedRemove: 'Image will be removed',
+	lightboxClose: 'Close',
 };

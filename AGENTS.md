@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**MealMe** is a single-binary local-first web application for managing a personal collection of meals. A Rust backend (axum + rusqlite) serves a REST API and an embedded Svelte 5 SPA frontend — no Node.js runtime needed after compilation. The binary listens on `127.0.0.1:11341` and persists data to `./meals.db` (SQLite, auto-created on first run).
+**MealMe** is a single-binary local-first web application for managing a personal collection of meals. A Rust backend (axum + rusqlite) serves a REST API and an embedded Svelte 5 SPA frontend — no Node.js runtime needed after compilation. The binary listens on `127.0.0.1:11341` and persists data to `./data/meals.db` (SQLite, auto-created on first run; override the directory with the `MEALME_DATA_DIR` env var).
 
 ## Architecture & Data Flow
 

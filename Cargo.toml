@@ -6,8 +6,9 @@ rust-version = "1.85"
 build = "build.rs"
 
 [dependencies]
-axum = { version = "0.7", default-features = false, features = ["json", "query", "macros", "tokio", "http1"] }
+axum = { version = "0.7", default-features = false, features = ["json", "query", "macros", "tokio", "http1", "multipart"] }
 chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp"] }
 rand = "0.9"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono"] }
 rust-embed = "8"

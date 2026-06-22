@@ -14,6 +14,7 @@ test.describe('Delete meal', () => {
 		page.once('dialog', (d) => d.accept());
 
 		const item = page.getByRole('listitem').filter({ hasText: 'Soup' });
+		await item.hover();
 		await item.getByRole('button', { name: 'Delete' }).click();
 
 		await expect(page.getByText('Soup')).not.toBeVisible();
@@ -26,6 +27,7 @@ test.describe('Delete meal', () => {
 		page.once('dialog', (d) => d.dismiss());
 
 		const item = page.getByRole('listitem').filter({ hasText: 'Soup' });
+		await item.hover();
 		await item.getByRole('button', { name: 'Delete' }).click();
 
 		await expect(page.getByRole('listitem').filter({ hasText: 'Soup' })).toBeVisible();

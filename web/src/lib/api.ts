@@ -25,26 +25,38 @@ export async function listMeals(search?: string): Promise<Meal[]> {
 	return request<Meal[]>(url);
 }
 
-export async function createMeal(payload: MealPayload): Promise<Meal> {
-	return request<Meal>('/api/meals', {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify(payload)
-	});
+export async function createMeal(
+	payload: MealPayload,
+	image?: File | null,
+): Promise<Meal> {
+	const form = new FormData();
+	form.set('name', payload.name);
+	form.set('ingredients', JSON.stringify(payload.ingredients));
+	if (image) form.set('image', image);
+	return request<Meal>('/api/meals', { method: 'POST', body: form });
 }
 
-export async function updateMeal(id: number, payload: MealPayload): Promise<Meal> {
-	return request<Meal>(`/api/meals/${id}`, {
-		method: 'PUT',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify(payload)
-	});
+export async function updateMeal(
+	id: number,
+	payload: MealPayload,
+	opts?: { image?: File | null; removeImage?: boolean },
+): Promise<Meal> {
+	const form = new FormData();
+	form.set('name', payload.name);
+	form.set('ingredients', JSON.stringify(payload.ingredients));
+	if (opts?.image) form.set('image', opts.image);
+	if (opts?.removeImage) form.set('image_action', 'remove');
+	return request<Meal>(`/api/meals/${id}`, { method: 'PUT', body: form });
 }
 
 export async function deleteMeal(id: number): Promise<void> {
 	return request<void>(`/api/meals/${id}`, {
 		method: 'DELETE'
 	});
+}
+
+export function mealImageUrl(id: number): string {
+	return `/api/meals/${id}/image`;
 }
 
 // Plan API

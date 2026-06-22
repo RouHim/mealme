@@ -1,5 +1,5 @@
 <script lang="ts">
-	type IconName = 'search' | 'empty-meals' | 'alert' | 'plate' | 'calendar' | 'chevron-left' | 'chevron-right' | 'plus' | 'trash';
+	type IconName = 'search' | 'empty-meals' | 'alert' | 'calendar' | 'chevron-left' | 'chevron-right' | 'plus' | 'trash' | 'x' | 'check' | 'edit-3';
 	let { name, class: className = '', size = 24 }: { name: IconName; class?: string; size?: number } = $props();
 </script>
 
@@ -9,6 +9,7 @@
 		<line x1="21" y1="21" x2="16.65" y2="16.65"></line>
 	</svg>
 {:else if name === 'empty-meals'}
+	<!-- custom: not from Feather -->
 	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 96 96" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class={className} aria-hidden="true">
 		<circle cx="48" cy="48" r="28"></circle>
 		<circle cx="48" cy="48" r="20" stroke-dasharray="2 4" opacity="0.4"></circle>
@@ -49,5 +50,19 @@
 	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={className} aria-hidden="true">
 		<polyline points="3 6 5 6 21 6"></polyline>
 		<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+	</svg>
+{:else if name === 'x'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={className} aria-hidden="true">
+		<line x1="18" y1="6" x2="6" y2="18"></line>
+		<line x1="6" y1="6" x2="18" y2="18"></line>
+	</svg>
+{:else if name === 'check'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={className} aria-hidden="true">
+		<polyline points="20 6 9 17 4 12"></polyline>
+	</svg>
+{:else if name === 'edit-3'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={className} aria-hidden="true">
+		<path d="M12 20h9"></path>
+		<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
 	</svg>
 {/if}

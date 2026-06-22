@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::extract::{Multipart, Path, Query, State};
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use tracing::instrument;
 
 use crate::db;
 use crate::error::AppError;
+use crate::image;
 use crate::model::{Meal, MealPatch, NewMeal, NewPlanRequest, Plan, PlanPatch, PlanSummaryItem};
 use crate::state::AppState;
 
@@ -33,9 +35,63 @@ pub async fn get_meal(
 #[instrument(skip(state))]
 pub async fn create_meal(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<NewMeal>,
+    mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<Meal>), AppError> {
-    let meal = db::insert_meal(&state.pool, payload).await?;
+    let mut name: Option<String> = None;
+    let mut ingredients_raw: Option<String> = None;
+    let mut image_bytes: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("invalid multipart data: {e}")))?
+    {
+        match field.name() {
+            Some("name") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::BadRequest(format!("failed to read name field: {e}")))?;
+                name = Some(text);
+            }
+            Some("ingredients") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read ingredients field: {e}"))
+                })?;
+                ingredients_raw = Some(text);
+            }
+            Some("image") => {
+                if image_bytes.is_some() {
+                    return Err(AppError::BadRequest(
+                        "only one image may be uploaded".into(),
+                    ));
+                }
+                let data = field.bytes().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read image field: {e}"))
+                })?;
+                image_bytes = Some(data.to_vec());
+            }
+            _ => {} // ignore unknown fields
+        }
+    }
+
+    let name = name.ok_or_else(|| AppError::BadRequest("missing 'name' field".into()))?;
+    let ingredients_raw = ingredients_raw
+        .ok_or_else(|| AppError::BadRequest("missing 'ingredients' field".into()))?;
+    let ingredients: Vec<crate::model::NewIngredientLine> = serde_json::from_str(&ingredients_raw)
+        .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
+
+    let jpeg_bytes;
+    let image = match image_bytes {
+        Some(bytes) => {
+            jpeg_bytes = image::convert_to_jpeg(&bytes)?;
+            db::ImageChange::Set(&jpeg_bytes)
+        }
+        None => db::ImageChange::Keep,
+    };
+
+    let new = NewMeal { name, ingredients };
+    let meal = db::insert_meal(&state.pool, new, image).await?;
     Ok((StatusCode::CREATED, Json(meal)))
 }
 
@@ -43,9 +99,78 @@ pub async fn create_meal(
 pub async fn update_meal(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-    Json(payload): Json<MealPatch>,
+    mut multipart: Multipart,
 ) -> Result<Json<Meal>, AppError> {
-    let meal = db::update_meal(&state.pool, id, payload).await?;
+    let mut name: Option<String> = None;
+    let mut ingredients_raw: Option<String> = None;
+    let mut image_bytes: Option<Vec<u8>> = None;
+    let mut image_action: Option<String> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("invalid multipart data: {e}")))?
+    {
+        match field.name() {
+            Some("name") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::BadRequest(format!("failed to read name field: {e}")))?;
+                name = Some(text);
+            }
+            Some("ingredients") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read ingredients field: {e}"))
+                })?;
+                ingredients_raw = Some(text);
+            }
+            Some("image") => {
+                if image_bytes.is_some() {
+                    return Err(AppError::BadRequest(
+                        "only one image may be uploaded".into(),
+                    ));
+                }
+                let data = field.bytes().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read image field: {e}"))
+                })?;
+                image_bytes = Some(data.to_vec());
+            }
+            Some("image_action") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read image_action field: {e}"))
+                })?;
+                image_action = Some(text);
+            }
+            _ => {} // ignore unknown fields
+        }
+    }
+
+    let name = name.ok_or_else(|| AppError::BadRequest("missing 'name' field".into()))?;
+    let ingredients_raw = ingredients_raw
+        .ok_or_else(|| AppError::BadRequest("missing 'ingredients' field".into()))?;
+    let ingredients: Vec<crate::model::NewIngredientLine> = serde_json::from_str(&ingredients_raw)
+        .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
+
+    // Validate image_action if present
+    if let Some(ref action) = image_action {
+        if action != "remove" {
+            return Err(AppError::BadRequest("image_action must be 'remove'".into()));
+        }
+    }
+
+    let jpeg_bytes;
+    let image = match (image_bytes, image_action.as_deref()) {
+        (Some(bytes), _) => {
+            jpeg_bytes = image::convert_to_jpeg(&bytes)?;
+            db::ImageChange::Set(&jpeg_bytes)
+        }
+        (None, Some("remove")) => db::ImageChange::Clear,
+        _ => db::ImageChange::Keep,
+    };
+
+    let patch = MealPatch { name, ingredients };
+    let meal = db::update_meal(&state.pool, id, patch, image).await?;
     Ok(Json(meal))
 }
 
@@ -58,6 +183,22 @@ pub async fn delete_meal(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// ---------------------------------------------------------------------------
+// Image handler
+// ---------------------------------------------------------------------------
+
+#[instrument(skip(state))]
+pub async fn get_meal_image(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    match db::find_meal_image(&state.pool, id).await? {
+        Some((bytes, content_type)) => {
+            Ok(([(header::CONTENT_TYPE, content_type)], bytes).into_response())
+        }
+        None => Ok(StatusCode::NO_CONTENT.into_response()),
+    }
+}
 // ---------------------------------------------------------------------------
 // Plan handlers
 // ---------------------------------------------------------------------------
@@ -128,6 +269,9 @@ pub async fn delete_plan(
 mod tests {
     use std::sync::Arc;
 
+    use ::image::ImageEncoder;
+    use ::image::Rgba;
+    use ::image::RgbaImage;
     use axum::Router;
     use axum::body::to_bytes;
     use axum::http::{Method, Request, StatusCode};
@@ -138,7 +282,6 @@ mod tests {
 
     use super::*;
     use crate::db::init_db;
-
     struct TestCtx {
         app: Router,
         _dir: tempfile::TempDir,
@@ -155,6 +298,7 @@ mod tests {
                 "/meals/:id",
                 get(get_meal).put(update_meal).delete(delete_meal),
             )
+            .route("/meals/:id/image", get(get_meal_image))
             .route("/plans", get(get_plans).post(create_plan))
             .route("/plans/:year/:week", put(update_plan).delete(delete_plan))
             .with_state(state);
@@ -171,17 +315,59 @@ mod tests {
             })
             .collect()
     }
+    fn build_multipart_body(
+        name: &str,
+        ingredients_json: &str,
+        image_bytes: Option<&[u8]>,
+    ) -> (Vec<u8>, String) {
+        let boundary = "testboundary123";
+        let mut body = Vec::new();
+
+        // name field
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"name\"\r\n\r\n");
+        body.extend_from_slice(name.as_bytes());
+        body.extend_from_slice(b"\r\n");
+
+        // ingredients field
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"ingredients\"\r\n\r\n");
+        body.extend_from_slice(ingredients_json.as_bytes());
+        body.extend_from_slice(b"\r\n");
+
+        // optional image field
+        if let Some(img) = image_bytes {
+            body.extend_from_slice(b"--");
+            body.extend_from_slice(boundary.as_bytes());
+            body.extend_from_slice(b"\r\n");
+            body.extend_from_slice(
+                b"Content-Disposition: form-data; name=\"image\"; filename=\"photo.png\"\r\n",
+            );
+            body.extend_from_slice(b"Content-Type: image/png\r\n\r\n");
+            body.extend_from_slice(img);
+            body.extend_from_slice(b"\r\n");
+        }
+
+        // closing boundary
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"--\r\n");
+
+        let content_type = format!("multipart/form-data; boundary={boundary}");
+        (body, content_type)
+    }
 
     async fn create_meal_helper(
         ctx: &TestCtx,
         name: &str,
         ingredients: &[(&str, Option<&str>)],
     ) -> Meal {
-        let body = serde_json::to_vec(&json!({
-            "name": name,
-            "ingredients": make_ingredient_lines(ingredients)
-        }))
-        .unwrap();
+        let ingredients_json = serde_json::to_string(&make_ingredient_lines(ingredients)).unwrap();
+        let (body, content_type) = build_multipart_body(name, &ingredients_json, None);
         let response = ctx
             .app
             .clone()
@@ -189,7 +375,7 @@ mod tests {
                 Request::builder()
                     .method(Method::POST)
                     .uri("/meals")
-                    .header("content-type", "application/json")
+                    .header("content-type", &content_type)
                     .body(axum::body::Body::from(body))
                     .unwrap(),
             )
@@ -226,11 +412,9 @@ mod tests {
     #[tokio::test]
     async fn given_valid_payload_when_post_meals_then_returns_201_and_persists() {
         let ctx = setup().await;
-        let body = serde_json::to_vec(&json!({
-            "name": "Pasta",
-            "ingredients": make_ingredient_lines(&[("noodles", None), ("sauce", None)])
-        }))
-        .unwrap();
+        let ings = make_ingredient_lines(&[("noodles", None), ("sauce", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) = build_multipart_body("Pasta", &ingredients_json, None);
         let response = ctx
             .app
             .clone()
@@ -238,7 +422,7 @@ mod tests {
                 Request::builder()
                     .method(Method::POST)
                     .uri("/meals")
-                    .header("content-type", "application/json")
+                    .header("content-type", &content_type)
                     .body(axum::body::Body::from(body))
                     .unwrap(),
             )
@@ -255,18 +439,16 @@ mod tests {
     #[tokio::test]
     async fn given_empty_name_when_post_meals_then_returns_400_with_error() {
         let ctx = setup().await;
-        let body = serde_json::to_vec(&json!({
-            "name": "",
-            "ingredients": make_ingredient_lines(&[("x", None)])
-        }))
-        .unwrap();
+        let ings = make_ingredient_lines(&[("x", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) = build_multipart_body("", &ingredients_json, None);
         let response = ctx
             .app
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
                     .uri("/meals")
-                    .header("content-type", "application/json")
+                    .header("content-type", &content_type)
                     .body(axum::body::Body::from(body))
                     .unwrap(),
             )
@@ -277,16 +459,13 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(json["error"].as_str().unwrap().contains("name"));
     }
-
     #[tokio::test]
     async fn given_existing_meal_when_put_meal_then_returns_200_with_updated_payload() {
         let ctx = setup().await;
         let meal = create_meal_helper(&ctx, "Original", &[("stuff", None)]).await;
-        let body = serde_json::to_vec(&json!({
-            "name": "Updated",
-            "ingredients": make_ingredient_lines(&[("new stuff", None)])
-        }))
-        .unwrap();
+        let ings = make_ingredient_lines(&[("new stuff", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) = build_multipart_body("Updated", &ingredients_json, None);
         let response = ctx
             .app
             .clone()
@@ -294,7 +473,7 @@ mod tests {
                 Request::builder()
                     .method(Method::PUT)
                     .uri(format!("/meals/{}", meal.id))
-                    .header("content-type", "application/json")
+                    .header("content-type", &content_type)
                     .body(axum::body::Body::from(body))
                     .unwrap(),
             )
@@ -312,18 +491,16 @@ mod tests {
     #[tokio::test]
     async fn given_missing_meal_when_put_meal_then_returns_404() {
         let ctx = setup().await;
-        let body = serde_json::to_vec(&json!({
-            "name": "X",
-            "ingredients": make_ingredient_lines(&[("y", None)])
-        }))
-        .unwrap();
+        let ings = make_ingredient_lines(&[("y", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) = build_multipart_body("X", &ingredients_json, None);
         let response = ctx
             .app
             .oneshot(
                 Request::builder()
                     .method(Method::PUT)
                     .uri("/meals/999")
-                    .header("content-type", "application/json")
+                    .header("content-type", &content_type)
                     .body(axum::body::Body::from(body))
                     .unwrap(),
             )
@@ -400,6 +577,147 @@ mod tests {
         let body = to_bytes(response.into_body(), 4096).await.unwrap();
         let meals: Vec<Meal> = serde_json::from_slice(&body).unwrap();
         assert_eq!(meals.len(), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // Image route tests
+    // -----------------------------------------------------------------------
+    fn build_test_png(w: u32, h: u32) -> Vec<u8> {
+        let img = RgbaImage::from_pixel(w, h, Rgba([10, 20, 30, 255]));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        ::image::codecs::png::PngEncoder::new(&mut buf)
+            .write_image(img.as_raw(), w, h, ::image::ExtendedColorType::Rgba8)
+            .unwrap();
+        buf.into_inner()
+    }
+
+    #[tokio::test]
+    async fn given_valid_jpeg_when_post_meal_then_persists_and_has_image_true() {
+        let ctx = setup().await;
+        let png = build_test_png(10, 10);
+        let ings = make_ingredient_lines(&[("salt", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) =
+            build_multipart_body("Photo Meal", &ingredients_json, Some(&png));
+        let response = ctx
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/meals")
+                    .header("content-type", &content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let meal: Meal = serde_json::from_slice(&resp_body).unwrap();
+        assert!(meal.has_image, "meal should have has_image: true");
+    }
+
+    #[tokio::test]
+    async fn given_png_upload_when_post_meal_then_image_endpoint_returns_jpeg() {
+        let ctx = setup().await;
+        let png = build_test_png(10, 10);
+        let ings = make_ingredient_lines(&[("x", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) = build_multipart_body("Img", &ingredients_json, Some(&png));
+        let resp = ctx
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/meals")
+                    .header("content-type", &content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let meal: Meal =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+
+        let img_resp = ctx
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/meals/{}/image", meal.id))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(img_resp.status(), StatusCode::OK);
+        let ct = img_resp
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(ct, "image/jpeg");
+        let img_body = to_bytes(img_resp.into_body(), 65536).await.unwrap();
+        assert_eq!(&img_body[..2], &[0xFF, 0xD8], "should be JPEG");
+    }
+
+    #[tokio::test]
+    async fn given_text_file_when_post_meal_then_returns_400() {
+        let ctx = setup().await;
+        let ings = make_ingredient_lines(&[("x", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) =
+            build_multipart_body("Bad", &ingredients_json, Some(b"not an image"));
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/meals")
+                    .header("content-type", &content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn given_meal_without_image_when_get_image_then_returns_204() {
+        let ctx = setup().await;
+        let meal = create_meal_helper(&ctx, "NoImg", &[("a", None)]).await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/meals/{}/image", meal.id))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn given_missing_meal_when_get_image_then_returns_204() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .uri("/meals/999/image")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
     }
 
     // -----------------------------------------------------------------------
