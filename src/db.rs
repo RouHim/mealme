@@ -56,10 +56,13 @@ struct IngredientRow {
 
 pub async fn init_db(path: &Path) -> Result<SqlitePool, AppError> {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(5)
         .connect_with(
             sqlx::sqlite::SqliteConnectOptions::new()
                 .filename(path)
-                .create_if_missing(true),
+                .create_if_missing(true)
+                .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+                .synchronous(sqlx::sqlite::SqliteSynchronous::Normal),
         )
         .await?;
     sqlx::migrate!("./migrations")
@@ -917,6 +920,38 @@ mod tests {
         let (pool, _dir) = setup_db().await;
         insert_test_meal(&pool, "Test", &[("salt", None)]).await;
         assert_eq!(meals_count(&pool).await.unwrap(), 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // pool resilience: cancelled begin
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn given_cancelled_begin_when_pool_reused_then_no_worker_crash() {
+        use std::future::poll_fn;
+        use std::pin::pin;
+        use std::task::Poll;
+
+        let (pool, _dir) = setup_db().await;
+
+        // Poll the begin future once to start the BEGIN command, then drop it.
+        // In sqlx 0.8.x this could leave the worker in a corrupted state
+        // (Transaction guard not yet constructed, so Drop couldn't roll back).
+        // In sqlx 0.9.0 the guard is created before begin(), so Drop safely rolls back.
+        // Poll once then drop — cancellation exercises Transaction::Drop rollback.
+        {
+            let mut begin_fut = pin!(pool.begin());
+            let _ = poll_fn(|cx| {
+                let _ = begin_fut.as_mut().poll(cx);
+                Poll::Ready(())
+            })
+            .await;
+        } // begin_fut dropped here — cancels the pending BEGIN
+        // Pool should still be usable — no WorkerCrashed
+        let count = meals_count(&pool)
+            .await
+            .expect("pool should survive cancelled begin");
+        assert_eq!(count, 0);
     }
 
     // -----------------------------------------------------------------------
