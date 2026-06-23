@@ -24,6 +24,7 @@ use crate::model::{
 struct MealRow {
     id: i64,
     name: String,
+    instructions: String,
     last_planned_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -36,6 +37,7 @@ fn map_meal_row(row: MealRow) -> Meal {
     Meal {
         id: row.id,
         name: row.name,
+        instructions: row.instructions,
         ingredients: Vec::new(),
         last_planned_at: row.last_planned_at,
         created_at: row.created_at,
@@ -88,7 +90,11 @@ pub fn normalize_ingredient_name(name: &str) -> String {
 // Validation
 // ---------------------------------------------------------------------------
 
-pub fn validate_meal(name: &str, ingredients: &[NewIngredientLine]) -> Result<(), AppError> {
+pub fn validate_meal(
+    name: &str,
+    ingredients: &[NewIngredientLine],
+    instructions: &str,
+) -> Result<(), AppError> {
     let name = name.trim();
     if name.is_empty() {
         return Err(AppError::Validation("name must not be empty".into()));
@@ -97,6 +103,18 @@ pub fn validate_meal(name: &str, ingredients: &[NewIngredientLine]) -> Result<()
         return Err(AppError::Validation(format!(
             "name must be at most 200 characters, got {}",
             name.len()
+        )));
+    }
+    let instructions_trim = instructions.trim();
+    if instructions_trim.is_empty() {
+        return Err(AppError::Validation(
+            "instructions must not be empty".into(),
+        ));
+    }
+    if instructions_trim.len() > 20000 {
+        return Err(AppError::Validation(format!(
+            "instructions must be at most 20000 characters, got {}",
+            instructions_trim.len()
         )));
     }
     if ingredients.is_empty() {
@@ -236,7 +254,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
         Some(term) => {
             let pattern = format!("%{}%", term.to_lowercase());
             sqlx::query_as::<_, MealRow>(
-                "SELECT DISTINCT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
+                "SELECT DISTINCT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
                  FROM meals m
                  LEFT JOIN meal_ingredients mi ON mi.meal_id = m.id
                  LEFT JOIN ingredients i ON i.id = mi.ingredient_id
@@ -249,7 +267,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
         }
         None => {
             sqlx::query_as::<_, MealRow>(
-                "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
+                "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
                  FROM meals m
                  ORDER BY m.updated_at DESC, m.id DESC",
             )
@@ -266,7 +284,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
 
 pub async fn find_meal(pool: &SqlitePool, id: i64) -> Result<Meal, AppError> {
     let row = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
+        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
          FROM meals m WHERE m.id = ?1",
     )
     .bind(id)
@@ -285,17 +303,18 @@ pub async fn insert_meal(
     new: NewMeal,
     image: ImageChange<'_>,
 ) -> Result<Meal, AppError> {
-    validate_meal(&new.name, &new.ingredients)?;
+    validate_meal(&new.name, &new.ingredients, &new.instructions)?;
     let now = Utc::now();
 
     let mut tx = pool.begin().await?;
     let trimmed_name = new.name.trim();
     let id: (i64,) = sqlx::query_as(
-        "INSERT INTO meals (name, last_planned_at, created_at, updated_at)
-         VALUES (?1, NULL, ?2, ?3)
+        "INSERT INTO meals (name, instructions, last_planned_at, created_at, updated_at)
+         VALUES (?1, ?2, NULL, ?3, ?4)
          RETURNING id",
     )
     .bind(trimmed_name)
+    .bind(&new.instructions)
     .bind(now)
     .bind(now)
     .fetch_one(&mut *tx)
@@ -317,18 +336,20 @@ pub async fn update_meal(
     patch: MealPatch,
     image: ImageChange<'_>,
 ) -> Result<Meal, AppError> {
-    validate_meal(&patch.name, &patch.ingredients)?;
+    validate_meal(&patch.name, &patch.ingredients, &patch.instructions)?;
     let now = Utc::now();
 
     let mut tx = pool.begin().await?;
     let trimmed_name = patch.name.trim();
-    let affected = sqlx::query("UPDATE meals SET name = ?1, updated_at = ?2 WHERE id = ?3")
-        .bind(trimmed_name)
-        .bind(now)
-        .bind(id)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
+    let affected =
+        sqlx::query("UPDATE meals SET name = ?1, instructions = ?2, updated_at = ?3 WHERE id = ?4")
+            .bind(trimmed_name)
+            .bind(&patch.instructions)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
 
     if affected == 0 {
         return Err(AppError::NotFound);
@@ -536,7 +557,7 @@ pub async fn select_meals_weighted(
     count: usize,
 ) -> Result<Vec<Meal>, AppError> {
     let meal_rows = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
+        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
          FROM meals m
          ORDER BY m.updated_at DESC, m.id DESC",
     )
@@ -679,7 +700,7 @@ pub async fn aggregate_plan_ingredients(
 
 pub async fn get_plan_meals(pool: &SqlitePool, plan_id: i64) -> Result<Vec<Meal>, AppError> {
     let meal_rows = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
+        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
          FROM plan_meals pm
          JOIN meals m ON m.id = pm.meal_id
          WHERE pm.plan_id = ?1
@@ -898,6 +919,7 @@ mod tests {
                         quantity: q.map(String::from),
                     })
                     .collect(),
+                instructions: "test".into(),
             },
             ImageChange::Keep,
         )
@@ -979,7 +1001,7 @@ mod tests {
 
     #[test]
     fn given_no_ingredient_lines_when_insert_meal_then_validation_error() {
-        let result = validate_meal("x", &[]);
+        let result = validate_meal("x", &[], "valid instructions");
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("ingredient")),
             other => panic!("expected Validation, got {other:?}"),
@@ -994,6 +1016,7 @@ mod tests {
                 name: "   ".into(),
                 quantity: None,
             }],
+            "valid instructions",
         );
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("name")),
@@ -1010,6 +1033,7 @@ mod tests {
                 name: long_name,
                 quantity: None,
             }],
+            "valid instructions",
         );
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("name")),
@@ -1026,6 +1050,7 @@ mod tests {
                 name: "valid".into(),
                 quantity: Some(long_qty),
             }],
+            "valid instructions",
         );
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("quantity")),
@@ -1041,9 +1066,42 @@ mod tests {
                 quantity: None,
             })
             .collect();
-        let result = validate_meal("x", &lines);
+        let result = validate_meal("x", &lines, "valid instructions");
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("100")),
+            other => panic!("expected Validation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn given_empty_instructions_when_validate_meal_then_error() {
+        let result = validate_meal(
+            "x",
+            &[NewIngredientLine {
+                name: "salt".into(),
+                quantity: None,
+            }],
+            "",
+        );
+        match &result {
+            Err(AppError::Validation(msg)) => assert!(msg.contains("instructions")),
+            other => panic!("expected Validation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn given_instructions_above_20000_chars_when_validate_meal_then_error() {
+        let long_instructions = "a".repeat(20001);
+        let result = validate_meal(
+            "x",
+            &[NewIngredientLine {
+                name: "salt".into(),
+                quantity: None,
+            }],
+            &long_instructions,
+        );
+        match &result {
+            Err(AppError::Validation(msg)) => assert!(msg.contains("20000")),
             other => panic!("expected Validation, got {other:?}"),
         }
     }
@@ -1060,6 +1118,7 @@ mod tests {
                     name: "x".into(),
                     quantity: None,
                 }],
+                instructions: "test".into(),
             },
             ImageChange::Keep,
         )
@@ -1080,6 +1139,7 @@ mod tests {
                     name: "x".into(),
                     quantity: None,
                 }],
+                instructions: "test".into(),
             },
             ImageChange::Keep,
         )
@@ -1101,6 +1161,7 @@ mod tests {
                     name: "x".into(),
                     quantity: None,
                 }],
+                instructions: "test".into(),
             },
             ImageChange::Keep,
         )
@@ -1122,6 +1183,7 @@ mod tests {
                     name: "x".into(),
                     quantity: None,
                 }],
+                instructions: "test".into(),
             },
             ImageChange::Keep,
         )
@@ -1451,6 +1513,7 @@ mod tests {
                     name: "Salt".into(),
                     quantity: Some("200g".into()),
                 }],
+                instructions: "test".into(),
             },
             ImageChange::Keep,
         )
@@ -1480,6 +1543,7 @@ mod tests {
                     name: "New".into(),
                     quantity: None,
                 }],
+                instructions: "test".into(),
             },
             ImageChange::Keep,
         )
@@ -1514,6 +1578,7 @@ mod tests {
                     name: "z".into(),
                     quantity: None,
                 }],
+                instructions: "test".into(),
             },
             ImageChange::Keep,
         )
@@ -1541,6 +1606,7 @@ mod tests {
                     name: "y".into(),
                     quantity: None,
                 }],
+                instructions: "test".into(),
             },
             ImageChange::Keep,
         )

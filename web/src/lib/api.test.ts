@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listMeals, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan } from './api';
+import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste } from './api';
 import type { Meal, MealPayload, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
 
 const mockFetch = vi.fn();
@@ -43,10 +43,25 @@ describe('listMeals', () => {
 	});
 });
 
+describe('getMeal', () => {
+	it('calls /api/meals/:id', async () => {
+		const meal: Meal = { id: 5, name: 'Pasta', ingredients: [], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '' };
+		mockResponse(200, meal);
+		const result = await getMeal(5);
+		expect(mockFetch).toHaveBeenCalledWith('/api/meals/5', undefined);
+		expect(result).toEqual(meal);
+	});
+
+	it('throws on 404', async () => {
+		mockResponse(404);
+		await expect(getMeal(999)).rejects.toThrow();
+	});
+});
+
 describe('createMeal', () => {
 	it('sends multipart form with name and ingredients', async () => {
-		const payload: MealPayload = { name: 'Test', ingredients: [{ name: 'stuff', quantity: null }] };
-		const mealResponse: Meal = { id: 1, name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false };
+		const payload: MealPayload = { name: 'Test', ingredients: [{ name: 'stuff', quantity: null }] , instructions: '' };
+		const mealResponse: Meal = { id: 1, name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '' };
 		mockResponse(201, mealResponse);
 		await createMeal(payload);
 		expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -63,8 +78,8 @@ describe('createMeal', () => {
 	});
 
 	it('includes image file when provided', async () => {
-		const payload: MealPayload = { name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }] };
-		const mealResponse: Meal = { id: 2, name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true };
+		const payload: MealPayload = { name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }] , instructions: '' };
+		const mealResponse: Meal = { id: 2, name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true, instructions: '' };
 		mockResponse(201, mealResponse);
 		const file = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' });
 		await createMeal(payload, file);
@@ -74,8 +89,8 @@ describe('createMeal', () => {
 	});
 
 	it('handles null image gracefully', async () => {
-		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] };
-		const mealResponse: Meal = { id: 3, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false };
+		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] , instructions: '' };
+		const mealResponse: Meal = { id: 3, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '' };
 		mockResponse(201, mealResponse);
 		await createMeal(payload, null);
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
@@ -85,8 +100,8 @@ describe('createMeal', () => {
 
 describe('updateMeal', () => {
 	it('sends multipart form with name and ingredients', async () => {
-		const payload: MealPayload = { name: 'Updated', ingredients: [{ name: 'new', quantity: null }] };
-		const mealResponse: Meal = { id: 3, name: 'Updated', ingredients: [{ name: 'new', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false };
+		const payload: MealPayload = { name: 'Updated', ingredients: [{ name: 'new', quantity: null }] , instructions: '' };
+		const mealResponse: Meal = { id: 3, name: 'Updated', ingredients: [{ name: 'new', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '' };
 		mockResponse(200, mealResponse);
 		await updateMeal(3, payload);
 		const [url, opts] = mockFetch.mock.calls[0];
@@ -99,8 +114,8 @@ describe('updateMeal', () => {
 	});
 
 	it('sends image_action=remove when removing', async () => {
-		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] };
-		const mealResponse: Meal = { id: 4, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false };
+		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] , instructions: '' };
+		const mealResponse: Meal = { id: 4, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '' };
 		mockResponse(200, mealResponse);
 		await updateMeal(4, payload, { removeImage: true });
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
@@ -108,8 +123,8 @@ describe('updateMeal', () => {
 	});
 
 	it('sends image file when replacing', async () => {
-		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] };
-		const mealResponse: Meal = { id: 5, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true };
+		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] , instructions: '' };
+		const mealResponse: Meal = { id: 5, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true, instructions: '' };
 		mockResponse(200, mealResponse);
 		const file = new File([new Uint8Array([4, 5, 6])], 'new.jpg', { type: 'image/jpeg' });
 		await updateMeal(5, payload, { image: file });
@@ -206,5 +221,37 @@ describe('deletePlan', () => {
 		mockResponse(204);
 		await deletePlan(2026, 1);
 		expect(mockFetch).toHaveBeenCalledWith('/api/plans/2026/1', { method: 'DELETE' });
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Recipe import API
+// ---------------------------------------------------------------------------
+
+describe('importFromUrl', () => {
+	it('POSTs to /api/import/url with the URL in JSON body', async () => {
+		const draft = { name: 'Pasta', ingredients: [], instructions: 'Boil water', imageBase64: null };
+		mockResponse(200, draft);
+		const result = await importFromUrl('https://example.com/recipe');
+		expect(mockFetch).toHaveBeenCalledWith('/api/import/url', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ url: 'https://example.com/recipe' }),
+		});
+		expect(result).toEqual(draft);
+	});
+});
+
+describe('importFromPaste', () => {
+	it('POSTs to /api/import/paste with content in JSON body', async () => {
+		const draft = { name: 'Toast', ingredients: [{ name: 'bread', quantity: null }], instructions: 'Toast it', imageBase64: null };
+		mockResponse(200, draft);
+		const result = await importFromPaste('<html>raw html</html>');
+		expect(mockFetch).toHaveBeenCalledWith('/api/import/paste', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ content: '<html>raw html</html>' }),
+		});
+		expect(result).toEqual(draft);
 	});
 });

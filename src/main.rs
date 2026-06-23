@@ -3,6 +3,7 @@ mod db;
 mod error;
 mod image;
 mod model;
+mod recipe;
 mod routes;
 mod seed;
 mod state;
@@ -13,7 +14,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -66,10 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = Arc::new(AppState { pool });
     let api = Router::new()
-        .route(
-            "/meals",
-            get(routes::list_meals).post(routes::create_meal),
-        )
+        .route("/meals", get(routes::list_meals).post(routes::create_meal))
         .route(
             "/meals/:id",
             get(routes::get_meal)
@@ -77,6 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .delete(routes::delete_meal),
         )
         .route("/meals/:id/image", get(routes::get_meal_image))
+        .route("/import/url", post(routes::import_from_url))
+        .route("/import/paste", post(routes::import_from_paste))
         .route("/plans", get(routes::get_plans).post(routes::create_plan))
         .route(
             "/plans/:year/:week",

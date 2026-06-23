@@ -4,6 +4,10 @@
 	import { t } from '$lib/i18n';
 	import { weekOfDate, mondaySundayOf, weeksInYear, isPastWeek } from '$lib/week';
 	import Icon from '$lib/Icon.svelte';
+	import { fly, fade, scale } from 'svelte/transition';
+	import { tierDuration } from '$lib/motion';
+	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
+	import { page } from '$app/state';
 
 	let year = $state(new Date().getFullYear());
 	let plans = $state<PlanSummaryItem[]>([]);
@@ -15,11 +19,14 @@
 
 	// Meal picker state
 	let mealPickerOpen = $state(false);
+	let planDeleteOpen = $state(false);
 	let pickerSearch = $state('');
 	let pickerResults = $state<Meal[]>([]);
 
 	// Current week info
 	let currentWeekInfo = $state(weekOfDate(new Date()));
+	const focusCurrent = $derived(page.url.searchParams.get('focus') === 'current');
+
 	const totalWeeks = $derived(weeksInYear(year));
 
 	$effect(() => {
@@ -29,6 +36,14 @@
 	$effect(() => {
 		if (selectedWeek !== null) {
 			loadPlan();
+		}
+	});
+
+	$effect(() => {
+		if (focusCurrent && selectedWeek === null) {
+			selectedWeek = currentWeekInfo.week;
+			if (year !== currentWeekInfo.year) year = currentWeekInfo.year;
+			mealCount = 3;
 		}
 	});
 
@@ -67,8 +82,12 @@
 	}
 
 	async function onDeletePlan() {
+		planDeleteOpen = true;
+	}
+
+	async function confirmDeletePlan() {
+		planDeleteOpen = false;
 		if (selectedWeek === null) return;
-		if (!confirm('Delete this plan?')) return;
 		try {
 			await deletePlan(year, selectedWeek);
 			selectedPlan = null;
@@ -115,6 +134,34 @@
 		}
 	}
 
+	function focusTrap(node: HTMLElement) {
+		const previouslyFocused = document.activeElement as HTMLElement | null;
+		node.focus();
+		function onKey(e: KeyboardEvent) {
+			if (e.key !== 'Tab') return;
+			const focusables = node.querySelectorAll<HTMLElement>(
+				'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+			);
+			if (focusables.length === 0) return;
+			const first = focusables[0];
+			const last = focusables[focusables.length - 1];
+			if (e.shiftKey && document.activeElement === first) {
+				e.preventDefault();
+				last.focus();
+			} else if (!e.shiftKey && document.activeElement === last) {
+				e.preventDefault();
+				first.focus();
+			}
+		}
+		node.addEventListener('keydown', onKey);
+		return {
+			destroy() {
+				node.removeEventListener('keydown', onKey);
+				previouslyFocused?.focus?.();
+			},
+		};
+	}
+
 	function formatDateRange(week: number): string {
 		const { monday, sunday } = mondaySundayOf(year, week);
 		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
@@ -126,16 +173,16 @@
 </script>
 
 <main>
-	<header class="planner-header">
+	<header class="planner-header glass">
 		<div>
 			<h1>{t('plannerTitle')}</h1>
 			<p class="planner-header__subtitle">{t('plannerSubtitle')}</p>
 		</div>
-		<a href="/" class="nav-link">{t('navMeals')}</a>
+		<a href="/meals" class="nav-link"><Icon name="utensils" size={16} /> {t('navMeals')}</a>
 	</header>
 
 	<!-- Year navigation -->
-	<div class="year-nav">
+	<div class="year-nav glass">
 		<button class="btn btn--ghost btn--icon" onclick={prevYear} aria-label={t('plannerYearPrev')}>
 			<Icon name="chevron-left" size={20} />
 		</button>
@@ -173,7 +220,7 @@
 
 	<!-- Plan detail panel -->
 	{#if selectedWeek !== null}
-		<section class="plan-detail">
+		<section class="plan-detail glass" in:fly={{ y: 8, duration: tierDuration(250) }}>
 			<h2>{t('plannerOpen')}: Week {selectedWeek}</h2>
 
 			{#if loading}
@@ -196,7 +243,7 @@
 									</div>
 									<button class="btn btn--ghost btn--icon" onclick={() => onRemoveMeal(meal.id)}
 										aria-label="{t('plannerRemove')} {meal.name}">
-										<Icon name="trash" size={14} />
+							<Icon name="trash-2" size={14} />
 									</button>
 								</li>
 							{/each}
@@ -236,8 +283,8 @@
 
 				<div class="plan-actions">
 					<button class="btn btn--danger-ghost" onclick={onDeletePlan}>
-						<Icon name="trash" size={16} />
-						{t('buttonDelete')}
+						<Icon name="trash-2" size={16} />
+						{t('plannerDeletePlan')}
 					</button>
 				</div>
 			{:else}
@@ -256,7 +303,7 @@
 
 			{#if planError}
 				<p class="form-error" role="alert">
-					<Icon name="alert" size={18} />
+					<Icon name="circle-alert" size={18} />
 					<span>{planError}</span>
 				</p>
 			{/if}
@@ -265,8 +312,8 @@
 
 	<!-- Meal picker overlay -->
 	{#if mealPickerOpen}
-		<div class="meal-picker-overlay" onclick={() => mealPickerOpen = false} onkeydown={(e) => { if (e.key === 'Escape') mealPickerOpen = false; }} role="dialog" aria-label={t('plannerPickMeals')} tabindex="0">
-			<div class="meal-picker" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
+		<div class="meal-picker-overlay glass--strong" transition:fade={{ duration: tierDuration(200) }} onclick={() => mealPickerOpen = false} onkeydown={(e) => { if (e.key === 'Escape') mealPickerOpen = false; }} role="dialog" aria-label={t('plannerPickMeals')} tabindex="-1">
+			<div class="meal-picker" use:focusTrap in:scale={{ duration: tierDuration(250), start: 0.95 }} onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 				<div class="meal-picker__header">
 					<h3>{t('plannerPickMeals')}</h3>
 					<button class="btn btn--ghost btn--icon" onclick={() => mealPickerOpen = false} aria-label={t('plannerClose')}>
@@ -298,6 +345,15 @@
 			</div>
 		</div>
 	{/if}
+	<DeleteConfirmDialog
+		open={planDeleteOpen}
+		title={t('plannerDeletePlan')}
+		message={t('confirmDeletePlan')}
+		confirmLabel={t('plannerDeletePlan')}
+		cancelLabel={t('buttonCancel')}
+		onconfirm={confirmDeletePlan}
+		oncancel={() => (planDeleteOpen = false)}
+	/>
 </main>
 
 <style>
@@ -306,6 +362,19 @@
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: var(--space-4);
+		position: sticky;
+		top: 0;
+		z-index: 20;
+		padding: var(--space-3) var(--space-4);
+		border-radius: 0;
+		border-left: none;
+		border-right: none;
+		border-top: none;
+	}
+	.planner-header.glass .nav-link {
+		background: var(--glass-scrim);
+		border-radius: var(--radius-full);
+		padding: var(--space-1) var(--space-2);
 	}
 	.planner-header__subtitle {
 		margin: 0;
@@ -313,6 +382,9 @@
 		font-size: var(--text-base);
 	}
 	.nav-link {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
 		color: var(--color-primary);
 		text-decoration: none;
 		font-weight: var(--weight-medium);
@@ -326,6 +398,11 @@
 		justify-content: center;
 		gap: var(--space-3);
 		margin-bottom: var(--space-4);
+		position: sticky;
+		top: 72px;
+		z-index: 15;
+		padding: var(--space-2) var(--space-4);
+		border-radius: var(--radius-md);
 	}
 	.year-nav__label {
 		font-size: var(--text-xl);
@@ -351,8 +428,12 @@
 		border-radius: var(--radius-md);
 		background: var(--color-surface);
 		cursor: pointer;
-		transition: background var(--transition-fast), border-color var(--transition-fast);
+		transition: background var(--motion-morph), border-color var(--motion-morph), transform var(--motion-morph);
+		transform: scale(1);
 		position: relative;
+	}
+	.week-cell:active {
+		transform: var(--motion-scale-press);
 	}
 	.week-cell:hover {
 		border-color: var(--color-primary);
@@ -394,10 +475,9 @@
 	}
 
 	.plan-detail {
-		border: 1px solid var(--color-border);
+		border: 1px solid var(--glass-border);
 		border-radius: var(--radius-lg);
 		padding: var(--space-6);
-		background: var(--color-surface);
 	}
 	.plan-detail h2 {
 		margin-top: 0;
@@ -483,18 +563,20 @@
 	.meal-picker-overlay {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.3);
+		background: var(--glass-scrim-dark);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		z-index: 100;
+		padding: var(--space-4);
 	}
 	.meal-picker {
-		background: var(--color-surface);
+		background: transparent;
+		border: 1px solid var(--glass-border);
 		border-radius: var(--radius-lg);
 		padding: var(--space-6);
 		max-width: 480px;
-		width: 90%;
+		width: 100%;
 		max-height: 80vh;
 		display: flex;
 		flex-direction: column;

@@ -7,6 +7,7 @@ export interface Meal {
 	id: number;
 	name: string;
 	ingredients: IngredientQuantity[];
+	instructions: string;
 	last_planned_at: string | null; // ISO 8601 or null
 	created_at: string; // ISO 8601
 	updated_at: string; // ISO 8601
@@ -21,6 +22,7 @@ export interface NewIngredientLine {
 export interface MealPayload {
 	name: string;
 	ingredients: NewIngredientLine[];
+	instructions: string;
 }
 
 export interface NumericTotal {
@@ -58,4 +60,19 @@ export interface NewPlanRequest {
 
 export interface PlanPatch {
 	meal_ids: number[];
+}
+
+export interface ImportDraft {
+	name: string;
+	ingredients: NewIngredientLine[];
+	instructions: string;
+	imageBase64: string | null;
+}
+
+export interface ImportFromUrlRequest {
+	url: string;
+}
+
+export interface ImportFromPasteRequest {
+	content: string;
 }

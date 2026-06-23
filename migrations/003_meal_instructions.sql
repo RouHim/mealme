@@ -1,0 +1,1 @@
+ALTER TABLE meals ADD COLUMN instructions TEXT NOT NULL DEFAULT '';

@@ -11,6 +11,7 @@ use crate::db;
 use crate::error::AppError;
 use crate::image;
 use crate::model::{Meal, MealPatch, NewMeal, NewPlanRequest, Plan, PlanPatch, PlanSummaryItem};
+use crate::recipe;
 use crate::state::AppState;
 
 #[instrument(skip(state))]
@@ -39,6 +40,7 @@ pub async fn create_meal(
 ) -> Result<(StatusCode, Json<Meal>), AppError> {
     let mut name: Option<String> = None;
     let mut ingredients_raw: Option<String> = None;
+    let mut instructions: Option<String> = None;
     let mut image_bytes: Option<Vec<u8>> = None;
 
     while let Some(field) = multipart
@@ -59,6 +61,12 @@ pub async fn create_meal(
                     AppError::BadRequest(format!("failed to read ingredients field: {e}"))
                 })?;
                 ingredients_raw = Some(text);
+            }
+            Some("instructions") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read instructions field: {e}"))
+                })?;
+                instructions = Some(text);
             }
             Some("image") => {
                 if image_bytes.is_some() {
@@ -80,6 +88,8 @@ pub async fn create_meal(
         .ok_or_else(|| AppError::BadRequest("missing 'ingredients' field".into()))?;
     let ingredients: Vec<crate::model::NewIngredientLine> = serde_json::from_str(&ingredients_raw)
         .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
+    let instructions =
+        instructions.ok_or_else(|| AppError::BadRequest("missing 'instructions' field".into()))?;
 
     let jpeg_bytes;
     let image = match image_bytes {
@@ -90,7 +100,11 @@ pub async fn create_meal(
         None => db::ImageChange::Keep,
     };
 
-    let new = NewMeal { name, ingredients };
+    let new = NewMeal {
+        name,
+        ingredients,
+        instructions,
+    };
     let meal = db::insert_meal(&state.pool, new, image).await?;
     Ok((StatusCode::CREATED, Json(meal)))
 }
@@ -103,6 +117,7 @@ pub async fn update_meal(
 ) -> Result<Json<Meal>, AppError> {
     let mut name: Option<String> = None;
     let mut ingredients_raw: Option<String> = None;
+    let mut instructions: Option<String> = None;
     let mut image_bytes: Option<Vec<u8>> = None;
     let mut image_action: Option<String> = None;
 
@@ -124,6 +139,12 @@ pub async fn update_meal(
                     AppError::BadRequest(format!("failed to read ingredients field: {e}"))
                 })?;
                 ingredients_raw = Some(text);
+            }
+            Some("instructions") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read instructions field: {e}"))
+                })?;
+                instructions = Some(text);
             }
             Some("image") => {
                 if image_bytes.is_some() {
@@ -151,6 +172,8 @@ pub async fn update_meal(
         .ok_or_else(|| AppError::BadRequest("missing 'ingredients' field".into()))?;
     let ingredients: Vec<crate::model::NewIngredientLine> = serde_json::from_str(&ingredients_raw)
         .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
+    let instructions =
+        instructions.ok_or_else(|| AppError::BadRequest("missing 'instructions' field".into()))?;
 
     // Validate image_action if present
     if let Some(ref action) = image_action {
@@ -169,7 +192,11 @@ pub async fn update_meal(
         _ => db::ImageChange::Keep,
     };
 
-    let patch = MealPatch { name, ingredients };
+    let patch = MealPatch {
+        name,
+        ingredients,
+        instructions,
+    };
     let meal = db::update_meal(&state.pool, id, patch, image).await?;
     Ok(Json(meal))
 }
@@ -198,6 +225,39 @@ pub async fn get_meal_image(
         }
         None => Ok(StatusCode::NO_CONTENT.into_response()),
     }
+}
+// ---------------------------------------------------------------------------
+// Recipe import handlers
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportFromUrlRequest {
+    pub url: String,
+}
+
+#[instrument(skip(_state))]
+pub async fn import_from_url(
+    State(_state): State<Arc<AppState>>,
+    Json(req): Json<ImportFromUrlRequest>,
+) -> Result<Json<recipe::ImportDraft>, AppError> {
+    let draft = recipe::fetch_and_parse(&req.url).await?;
+    Ok(Json(draft))
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportFromPasteRequest {
+    pub content: String,
+}
+
+#[instrument(skip(_state))]
+pub async fn import_from_paste(
+    State(_state): State<Arc<AppState>>,
+    Json(req): Json<ImportFromPasteRequest>,
+) -> Result<Json<recipe::ImportDraft>, AppError> {
+    let draft = recipe::parse_recipe(&req.content)?;
+    Ok(Json(draft))
 }
 // ---------------------------------------------------------------------------
 // Plan handlers
@@ -275,7 +335,7 @@ mod tests {
     use axum::Router;
     use axum::body::to_bytes;
     use axum::http::{Method, Request, StatusCode};
-    use axum::routing::{get, put};
+    use axum::routing::{get, post, put};
     use serde_json::json;
 
     use tower::ServiceExt;
@@ -299,6 +359,8 @@ mod tests {
                 get(get_meal).put(update_meal).delete(delete_meal),
             )
             .route("/meals/:id/image", get(get_meal_image))
+            .route("/import/url", post(import_from_url))
+            .route("/import/paste", post(import_from_paste))
             .route("/plans", get(get_plans).post(create_plan))
             .route("/plans/:year/:week", put(update_plan).delete(delete_plan))
             .with_state(state);
@@ -318,6 +380,7 @@ mod tests {
     fn build_multipart_body(
         name: &str,
         ingredients_json: &str,
+        instructions_text: &str,
         image_bytes: Option<&[u8]>,
     ) -> (Vec<u8>, String) {
         let boundary = "testboundary123";
@@ -337,6 +400,13 @@ mod tests {
         body.extend_from_slice(b"\r\n");
         body.extend_from_slice(b"Content-Disposition: form-data; name=\"ingredients\"\r\n\r\n");
         body.extend_from_slice(ingredients_json.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        // instructions field
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"instructions\"\r\n\r\n");
+        body.extend_from_slice(instructions_text.as_bytes());
         body.extend_from_slice(b"\r\n");
 
         // optional image field
@@ -365,9 +435,11 @@ mod tests {
         ctx: &TestCtx,
         name: &str,
         ingredients: &[(&str, Option<&str>)],
+        instructions: &str,
     ) -> Meal {
         let ingredients_json = serde_json::to_string(&make_ingredient_lines(ingredients)).unwrap();
-        let (body, content_type) = build_multipart_body(name, &ingredients_json, None);
+        let (body, content_type) =
+            build_multipart_body(name, &ingredients_json, instructions, None);
         let response = ctx
             .app
             .clone()
@@ -414,7 +486,8 @@ mod tests {
         let ctx = setup().await;
         let ings = make_ingredient_lines(&[("noodles", None), ("sauce", None)]);
         let ingredients_json = serde_json::to_string(&ings).unwrap();
-        let (body, content_type) = build_multipart_body("Pasta", &ingredients_json, None);
+        let (body, content_type) =
+            build_multipart_body("Pasta", &ingredients_json, "test instructions", None);
         let response = ctx
             .app
             .clone()
@@ -441,7 +514,8 @@ mod tests {
         let ctx = setup().await;
         let ings = make_ingredient_lines(&[("x", None)]);
         let ingredients_json = serde_json::to_string(&ings).unwrap();
-        let (body, content_type) = build_multipart_body("", &ingredients_json, None);
+        let (body, content_type) =
+            build_multipart_body("", &ingredients_json, "test instructions", None);
         let response = ctx
             .app
             .oneshot(
@@ -462,10 +536,12 @@ mod tests {
     #[tokio::test]
     async fn given_existing_meal_when_put_meal_then_returns_200_with_updated_payload() {
         let ctx = setup().await;
-        let meal = create_meal_helper(&ctx, "Original", &[("stuff", None)]).await;
+        let meal =
+            create_meal_helper(&ctx, "Original", &[("stuff", None)], "test instructions").await;
         let ings = make_ingredient_lines(&[("new stuff", None)]);
         let ingredients_json = serde_json::to_string(&ings).unwrap();
-        let (body, content_type) = build_multipart_body("Updated", &ingredients_json, None);
+        let (body, content_type) =
+            build_multipart_body("Updated", &ingredients_json, "test instructions", None);
         let response = ctx
             .app
             .clone()
@@ -493,7 +569,8 @@ mod tests {
         let ctx = setup().await;
         let ings = make_ingredient_lines(&[("y", None)]);
         let ingredients_json = serde_json::to_string(&ings).unwrap();
-        let (body, content_type) = build_multipart_body("X", &ingredients_json, None);
+        let (body, content_type) =
+            build_multipart_body("X", &ingredients_json, "test instructions", None);
         let response = ctx
             .app
             .oneshot(
@@ -512,7 +589,7 @@ mod tests {
     #[tokio::test]
     async fn given_existing_meal_when_delete_meal_then_returns_204_and_removes_row() {
         let ctx = setup().await;
-        let meal = create_meal_helper(&ctx, "ToDelete", &[("x", None)]).await;
+        let meal = create_meal_helper(&ctx, "ToDelete", &[("x", None)], "test instructions").await;
         let response = ctx
             .app
             .clone()
@@ -560,8 +637,14 @@ mod tests {
     #[tokio::test]
     async fn given_search_term_when_get_meals_then_filters_by_name_and_ingredients() {
         let ctx = setup().await;
-        let _ = create_meal_helper(&ctx, "Test", &[("stuff", None)]).await;
-        let _ = create_meal_helper(&ctx, "Other", &[("test ingredient", None)]).await;
+        let _ = create_meal_helper(&ctx, "Test", &[("stuff", None)], "test instructions").await;
+        let _ = create_meal_helper(
+            &ctx,
+            "Other",
+            &[("test ingredient", None)],
+            "test instructions",
+        )
+        .await;
 
         let response = ctx
             .app
@@ -597,8 +680,12 @@ mod tests {
         let png = build_test_png(10, 10);
         let ings = make_ingredient_lines(&[("salt", None)]);
         let ingredients_json = serde_json::to_string(&ings).unwrap();
-        let (body, content_type) =
-            build_multipart_body("Photo Meal", &ingredients_json, Some(&png));
+        let (body, content_type) = build_multipart_body(
+            "Photo Meal",
+            &ingredients_json,
+            "test instructions",
+            Some(&png),
+        );
         let response = ctx
             .app
             .clone()
@@ -624,7 +711,8 @@ mod tests {
         let png = build_test_png(10, 10);
         let ings = make_ingredient_lines(&[("x", None)]);
         let ingredients_json = serde_json::to_string(&ings).unwrap();
-        let (body, content_type) = build_multipart_body("Img", &ingredients_json, Some(&png));
+        let (body, content_type) =
+            build_multipart_body("Img", &ingredients_json, "test instructions", Some(&png));
         let resp = ctx
             .app
             .clone()
@@ -670,8 +758,12 @@ mod tests {
         let ctx = setup().await;
         let ings = make_ingredient_lines(&[("x", None)]);
         let ingredients_json = serde_json::to_string(&ings).unwrap();
-        let (body, content_type) =
-            build_multipart_body("Bad", &ingredients_json, Some(b"not an image"));
+        let (body, content_type) = build_multipart_body(
+            "Bad",
+            &ingredients_json,
+            "test instructions",
+            Some(b"not an image"),
+        );
         let response = ctx
             .app
             .oneshot(
@@ -690,7 +782,7 @@ mod tests {
     #[tokio::test]
     async fn given_meal_without_image_when_get_image_then_returns_204() {
         let ctx = setup().await;
-        let meal = create_meal_helper(&ctx, "NoImg", &[("a", None)]).await;
+        let meal = create_meal_helper(&ctx, "NoImg", &[("a", None)], "test instructions").await;
         let response = ctx
             .app
             .oneshot(
@@ -752,9 +844,9 @@ mod tests {
     #[tokio::test]
     async fn given_meals_exist_when_post_plans_then_returns_201_with_plan_and_ingredient_summary() {
         let ctx = setup().await;
-        create_meal_helper(&ctx, "A", &[("salt", Some("200g"))]).await;
-        create_meal_helper(&ctx, "B", &[("salt", Some("100g"))]).await;
-        create_meal_helper(&ctx, "C", &[("pepper", None)]).await;
+        create_meal_helper(&ctx, "A", &[("salt", Some("200g"))], "test instructions").await;
+        create_meal_helper(&ctx, "B", &[("salt", Some("100g"))], "test instructions").await;
+        create_meal_helper(&ctx, "C", &[("pepper", None)], "test instructions").await;
 
         let body = serde_json::to_vec(&json!({
             "year": 2026,
@@ -786,8 +878,8 @@ mod tests {
     async fn given_plan_exists_when_get_plans_with_year_and_week_then_returns_plan_with_ingredient_summary()
      {
         let ctx = setup().await;
-        create_meal_helper(&ctx, "A", &[("salt", Some("200g"))]).await;
-        create_meal_helper(&ctx, "B", &[("salt", Some("100g"))]).await;
+        create_meal_helper(&ctx, "A", &[("salt", Some("200g"))], "test instructions").await;
+        create_meal_helper(&ctx, "B", &[("salt", Some("100g"))], "test instructions").await;
 
         // Create a plan
         let body = serde_json::to_vec(&json!({
@@ -878,7 +970,7 @@ mod tests {
     async fn given_year_query_only_no_week_when_get_plans_then_returns_summary_array_for_that_year()
     {
         let ctx = setup().await;
-        create_meal_helper(&ctx, "A", &[("x", None)]).await;
+        create_meal_helper(&ctx, "A", &[("x", None)], "test instructions").await;
 
         // Create a plan
         let body = serde_json::to_vec(&json!({
@@ -921,8 +1013,8 @@ mod tests {
     async fn given_plan_exists_when_put_plans_with_meal_ids_then_returns_updated_plan_without_touching_last_planned_at()
      {
         let ctx = setup().await;
-        let m1 = create_meal_helper(&ctx, "M1", &[("x", None)]).await;
-        let m2 = create_meal_helper(&ctx, "M2", &[("y", None)]).await;
+        let m1 = create_meal_helper(&ctx, "M1", &[("x", None)], "test instructions").await;
+        let m2 = create_meal_helper(&ctx, "M2", &[("y", None)], "test instructions").await;
 
         // Create a plan with m1, m2 via POST
         let body = serde_json::to_vec(&json!({
@@ -1023,7 +1115,7 @@ mod tests {
     #[tokio::test]
     async fn given_plan_exists_when_delete_plans_then_returns_204_and_subsequent_get_returns_404() {
         let ctx = setup().await;
-        create_meal_helper(&ctx, "A", &[("x", None)]).await;
+        create_meal_helper(&ctx, "A", &[("x", None)], "test instructions").await;
 
         // Create a plan
         let body = serde_json::to_vec(&json!({
@@ -1089,5 +1181,123 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    // -----------------------------------------------------------------------
+    // Recipe import tests
+    // -----------------------------------------------------------------------
+
+    const PASTE_HTML_WITH_RECIPE: &str = r#"<html><head>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Recipe","name":"Test Recipe","description":"A test recipe","recipeIngredient":["2 cups flour","salt"],"recipeInstructions":[{"@type":"HowToStep","text":"Mix ingredients."},{"@type":"HowToStep","text":"Bake for 30 minutes."}]}
+</script>
+</head><body></body></html>"#;
+
+    #[tokio::test]
+    async fn given_valid_paste_content_when_import_from_paste_then_returns_draft() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/import/paste")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({"content": PASTE_HTML_WITH_RECIPE})).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        let draft: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(draft["name"], "Test Recipe");
+        assert_eq!(draft["ingredients"].as_array().unwrap().len(), 2);
+        assert!(draft["instructions"].as_str().unwrap().contains("Mix"));
+        assert!(draft["imageBase64"].is_null());
+    }
+
+    #[tokio::test]
+    async fn given_paste_without_recipe_when_import_from_paste_then_returns_400() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/import/paste")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(
+                            &json!({"content": "<html><body>no recipe</body></html>"}),
+                        )
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(error["error"].as_str().unwrap().contains("Recipe"));
+    }
+
+    #[tokio::test]
+    async fn given_missing_content_field_when_import_from_paste_then_returns_400() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/import/paste")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({})).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn given_import_draft_when_received_then_not_persisted() {
+        let ctx = setup().await;
+        // Call import/paste
+        let _response = ctx
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/import/paste")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({"content": PASTE_HTML_WITH_RECIPE})).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Verify no meal was persisted (FR-006 / SC-006)
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .uri("/meals")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let meals: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert!(meals.is_empty(), "import must not persist meals");
     }
 }

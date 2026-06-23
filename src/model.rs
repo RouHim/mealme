@@ -6,6 +6,8 @@ pub struct Meal {
     pub id: i64,
     pub name: String,
     pub ingredients: Vec<IngredientQuantity>,
+    #[serde(default)]
+    pub instructions: String,
     pub last_planned_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -23,9 +25,11 @@ pub struct IngredientQuantity {
 pub struct NewMeal {
     pub name: String,
     pub ingredients: Vec<NewIngredientLine>,
+    #[serde(default)]
+    pub instructions: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct NewIngredientLine {
     pub name: String,
     pub quantity: Option<String>,
@@ -35,6 +39,8 @@ pub struct NewIngredientLine {
 pub struct MealPatch {
     pub name: String,
     pub ingredients: Vec<NewIngredientLine>,
+    #[serde(default)]
+    pub instructions: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -84,13 +90,14 @@ mod tests {
     use super::*;
     #[test]
     fn given_valid_meal_json_when_deserialize_then_fields_match() {
-        let json = r#"{"id":1,"name":"x","ingredients":[{"name":"y","quantity":null}],"last_planned_at":null,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","has_image":false}"#;
+        let json = r#"{"id":1,"name":"x","ingredients":[{"name":"y","quantity":null}],"instructions":"cook it","last_planned_at":null,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","has_image":false}"#;
         let meal: Meal = serde_json::from_str(json).expect("should deserialize");
         assert_eq!(meal.id, 1);
         assert_eq!(meal.name, "x");
         assert_eq!(meal.ingredients.len(), 1);
         assert_eq!(meal.ingredients[0].name, "y");
         assert_eq!(meal.ingredients[0].quantity, None);
+        assert_eq!(meal.instructions, "cook it");
         assert_eq!(meal.last_planned_at, None);
         let expected_dt =
             DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").expect("valid datetime");
@@ -107,6 +114,7 @@ mod tests {
                 name: "noodles".into(),
                 quantity: None,
             }],
+            instructions: String::new(),
             last_planned_at: None,
             created_at: DateTime::parse_from_rfc3339("2026-06-13T12:00:00Z")
                 .unwrap()
@@ -123,12 +131,14 @@ mod tests {
 
     #[test]
     fn given_payload_json_when_deserialize_new_meal_then_fields_match() {
-        let json = r#"{"name":"a","ingredients":[{"name":"b","quantity":null}]}"#;
+        let json =
+            r#"{"name":"a","ingredients":[{"name":"b","quantity":null}],"instructions":"cook"}"#;
         let new_meal: NewMeal = serde_json::from_str(json).expect("should deserialize");
         assert_eq!(new_meal.name, "a");
         assert_eq!(new_meal.ingredients.len(), 1);
         assert_eq!(new_meal.ingredients[0].name, "b");
         assert_eq!(new_meal.ingredients[0].quantity, None);
+        assert_eq!(new_meal.instructions, "cook");
     }
 
     #[test]

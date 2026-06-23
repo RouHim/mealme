@@ -55,8 +55,6 @@ pub fn convert_to_jpeg(bytes: &[u8]) -> Result<Vec<u8>, AppError> {
     Ok(buf.into_inner())
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use image::ImageReader;
@@ -150,5 +148,4 @@ mod tests {
             other => panic!("expected BadRequest, got {other:?}"),
         }
     }
-
 }

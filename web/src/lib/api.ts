@@ -1,4 +1,4 @@
-import type { Meal, MealPayload, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
+import type { Meal, MealPayload, ImportDraft, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
 	const response = await fetch(url, options);
@@ -25,6 +25,10 @@ export async function listMeals(search?: string): Promise<Meal[]> {
 	return request<Meal[]>(url);
 }
 
+export async function getMeal(id: number): Promise<Meal> {
+	return request<Meal>(`/api/meals/${id}`);
+}
+
 export async function createMeal(
 	payload: MealPayload,
 	image?: File | null,
@@ -32,6 +36,7 @@ export async function createMeal(
 	const form = new FormData();
 	form.set('name', payload.name);
 	form.set('ingredients', JSON.stringify(payload.ingredients));
+	form.set('instructions', payload.instructions);
 	if (image) form.set('image', image);
 	return request<Meal>('/api/meals', { method: 'POST', body: form });
 }
@@ -44,6 +49,7 @@ export async function updateMeal(
 	const form = new FormData();
 	form.set('name', payload.name);
 	form.set('ingredients', JSON.stringify(payload.ingredients));
+	form.set('instructions', payload.instructions);
 	if (opts?.image) form.set('image', opts.image);
 	if (opts?.removeImage) form.set('image_action', 'remove');
 	return request<Meal>(`/api/meals/${id}`, { method: 'PUT', body: form });
@@ -105,5 +111,23 @@ export async function updatePlan(year: number, week: number, payload: PlanPatch)
 export async function deletePlan(year: number, week: number): Promise<void> {
 	return request<void>(`/api/plans/${year}/${week}`, {
 		method: 'DELETE'
+	});
+}
+
+// Recipe import API
+
+export async function importFromUrl(url: string): Promise<ImportDraft> {
+	return request<ImportDraft>('/api/import/url', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ url }),
+	});
+}
+
+export async function importFromPaste(content: string): Promise<ImportDraft> {
+	return request<ImportDraft>('/api/import/paste', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ content }),
 	});
 }
