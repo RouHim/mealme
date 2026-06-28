@@ -50,9 +50,12 @@
 		<button class="btn btn--ghost" onclick={loadCurrentWeek}>{t('buttonRetry')}</button>
 	{:else if plan}
 		<header class="page-header glass">
-			<div>
-				<h1>{t('currentWeekTitle')}</h1>
-				<p class="page-header__subtitle">{formatDateRange()}</p>
+			<div class="page-header__brand">
+				<Icon name="soup" size={28} />
+				<div>
+					<h1>{t('currentWeekTitle')}</h1>
+					<p class="page-header__subtitle">{formatDateRange()}</p>
+				</div>
 			</div>
 			<div class="page-header__right">
 				<a href="/meals" class="nav-link"><Icon name="utensils" size={16} /> {t('navMeals')}</a>

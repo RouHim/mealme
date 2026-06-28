@@ -211,9 +211,12 @@
 
 <main>
 	<header class="page-header glass">
-		<div>
-			<h1 class="page-header__wordmark">{t('appTitle')}</h1>
-			<p class="page-header__subtitle">{t('appSubtitle')}</p>
+		<div class="page-header__brand">
+			<Icon name="soup" size={28} />
+			<div>
+				<h1 class="page-header__wordmark">{t('appTitle')}</h1>
+				<p class="page-header__subtitle">{t('appSubtitle')}</p>
+			</div>
 		</div>
 		<div class="page-header__right">
 			<div class="page-header__search">

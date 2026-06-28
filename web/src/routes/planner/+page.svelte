@@ -174,9 +174,12 @@
 
 <main>
 	<header class="planner-header glass">
-		<div>
-			<h1>{t('plannerTitle')}</h1>
-			<p class="planner-header__subtitle">{t('plannerSubtitle')}</p>
+		<div class="page-header__brand">
+			<Icon name="soup" size={28} />
+			<div>
+				<h1>{t('plannerTitle')}</h1>
+				<p class="planner-header__subtitle">{t('plannerSubtitle')}</p>
+			</div>
 		</div>
 		<a href="/meals" class="nav-link"><Icon name="utensils" size={16} /> {t('navMeals')}</a>
 	</header>
