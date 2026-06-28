@@ -299,14 +299,12 @@
 									</span>
 								</div>
 								<p class="meal-card__ingredients">{ingredientPreview(meal)}</p>
-								<p class="meal-card__meta">
-									<Icon name="calendar" size={14} />
-									{#if meal.last_planned_at}
+								{#if meal.last_planned_at}
+									<p class="meal-card__meta">
+										<Icon name="calendar" size={14} />
 										{t('lastPlanned', { date: formatDate(meal.last_planned_at, { month: 'short', day: 'numeric' }) })}
-									{:else}
-										{t('lastPlannedNever')}
-									{/if}
-								</p>
+									</p>
+								{/if}
 							</div>
 						</a>
 					</li>
