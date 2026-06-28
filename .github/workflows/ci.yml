@@ -108,7 +108,7 @@ jobs:
       - name: semantic-release
         id: semantic
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BEFORE_TAG=$(git tag --list 'v*' --sort=-version:refname | head -n1)
           npx semantic-release
