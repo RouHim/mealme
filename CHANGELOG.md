@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/RouHim/mealme/compare/v1.0.1...v1.1.0) (2026-06-28)
+
+
+### Features
+
+* replace default favicon with Lucide soup icon, add banner logo to all page headers ([fbc8688](https://github.com/RouHim/mealme/commit/fbc8688f3a34222063cebcc5e0cafab01fd90678))
+
 ## [1.0.1](https://github.com/RouHim/mealme/compare/v1.0.0...v1.0.1) (2026-06-28)
 
 
