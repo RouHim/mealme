@@ -59,11 +59,11 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('tests/package-lock.json') }}
+      - name: Install E2E deps
+        run: cd tests && npm ci
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: cd tests && npx playwright install --with-deps chromium
-      - name: Install E2E deps
-        run: cd tests && npm ci
       - name: Run E2E tests
         run: just e2e
       - name: Upload HTML report
