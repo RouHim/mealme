@@ -21,7 +21,8 @@ export default defineConfig({
 	},
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 	webServer: {
-		command: "bash -c 'mkdir -p .e2e-db && cargo run --quiet'",
+		command: "bash -c 'mkdir -p .e2e-db && if [ -x target/release/mealme ]; then exec target/release/mealme; else exec cargo run --quiet; fi'",
+		cwd: '..',
 		url: 'http://localhost:11342/api/meals',
 		reuseExistingServer: !process.env.CI,
 		timeout: 60_000,
