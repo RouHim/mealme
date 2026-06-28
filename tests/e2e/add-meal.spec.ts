@@ -8,25 +8,28 @@ test.describe('Add meal', () => {
 	});
 
 	test('adds a valid meal and shows it in the list', async ({ page }) => {
-		await page.goto('/');
 		await createMeal(page, 'Salad', [{ name: 'lettuce' }, { name: 'tomato' }]);
 		await expect(page.getByRole('listitem').filter({ hasText: 'Salad' })).toBeVisible();
 	});
 
 	test('shows validation error for empty name', async ({ page }) => {
-		await page.goto('/');
+		await page.goto('/meals');
+		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
+		await expect(page.getByRole('dialog')).toBeVisible();
 		// Fill ingredient name but leave meal name empty
-		await page.getByRole('textbox', { name: 'Ingredient name 1' }).fill('x');
-		// Click the form submit button (exact match to avoid "Add ingredient" button)
-		await page.getByRole('button', { name: 'Add', exact: true }).click();
+		await page.getByRole('dialog').getByRole('textbox', { name: 'Ingredient name 1' }).fill('x');
+		// Click the form submit button (regex to avoid "Add ingredient" button)
+		await page.getByRole('dialog').getByRole('button', { name: /^(Add|Hinzufügen)$/ }).click();
 		await expect(page.getByText('Name is required')).toBeVisible();
 	});
 
 	test('shows validation error for empty ingredients', async ({ page }) => {
-		await page.goto('/');
-		await page.getByRole('textbox', { name: 'Name', exact: true }).fill('x');
+		await page.goto('/meals');
+		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
+		await expect(page.getByRole('dialog')).toBeVisible();
+		await page.getByRole('dialog').getByLabel('Name').fill('x');
 		// Leave ingredient row empty, click submit
-		await page.getByRole('button', { name: 'Add', exact: true }).click();
+		await page.getByRole('dialog').getByRole('button', { name: /^(Add|Hinzufügen)$/ }).click();
 		await expect(page.getByText('At least one ingredient is required')).toBeVisible();
 	});
 });

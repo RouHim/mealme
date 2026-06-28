@@ -9,7 +9,7 @@ test.describe('i18n', () => {
 	test('detects German from browser Accept-Language', async ({ browser }) => {
 		const context = await browser.newContext({ locale: 'de-DE' });
 		const page = await context.newPage();
-		await page.goto('/');
+		await page.goto('/meals');
 		await expect(page.locator('h1')).toContainText('Mahlzeiten');
 		await context.close();
 	});
@@ -17,7 +17,7 @@ test.describe('i18n', () => {
 	test('detects non-German defaults to English', async ({ browser }) => {
 		const context = await browser.newContext({ locale: 'fr-FR' });
 		const page = await context.newPage();
-		await page.goto('/');
+		await page.goto('/meals');
 		await expect(page.locator('h1')).toContainText('Meals');
 		await context.close();
 	});
@@ -25,7 +25,7 @@ test.describe('i18n', () => {
 	test('all UI strings translate to German', async ({ browser }) => {
 		const context = await browser.newContext({ locale: 'de-DE' });
 		const page = await context.newPage();
-		await page.goto('/');
+		await page.goto('/meals');
 
 		// Header
 		await expect(page.locator('h1')).toContainText('Mahlzeiten');
@@ -33,26 +33,28 @@ test.describe('i18n', () => {
 		// Search
 		await expect(page.getByPlaceholder('Mahlzeiten suchen...')).toBeVisible();
 
+		// Open the add-meal modal
+		await page.getByRole('button', { name: 'Mahlzeit hinzufügen' }).click();
+		const dialog = page.getByRole('dialog', { name: 'Mahlzeit hinzufügen' });
+		await expect(dialog).toBeVisible();
+
 		// Form heading
-		await expect(page.getByRole('heading', { name: 'Mahlzeit hinzufügen' })).toBeVisible();
+		await expect(dialog.getByRole('heading', { name: 'Mahlzeit hinzufügen' })).toBeVisible();
 
 		// Form labels
-		await expect(page.getByText('Name')).toBeVisible();
-		await expect(page.getByText('Zutaten')).toBeVisible();
+		await expect(dialog.getByLabel('Name')).toBeVisible();
+		await expect(dialog.getByText('Zutaten')).toBeVisible();
 
 		// Submit button
-		await expect(page.getByRole('button', { name: 'Hinzufügen', exact: true })).toBeVisible();
+		await expect(dialog.getByRole('button', { name: 'Hinzufügen', exact: true })).toBeVisible();
 
 		// Empty state
 		await expect(page.getByText('Deine Rezeptsammlung ist leer')).toBeVisible();
 		await expect(page.getByText('Noch keine Mahlzeiten. Füge deine erste hinzu.')).toBeVisible();
 
-		// All meals heading
-		await expect(page.getByRole('heading', { name: 'Alle Mahlzeiten' })).toBeVisible();
-
 		// Validation
-		await page.getByRole('button', { name: 'Hinzufügen', exact: true }).click();
-		await expect(page.getByText('Name ist erforderlich')).toBeVisible();
+		await dialog.getByRole('button', { name: 'Hinzufügen', exact: true }).click();
+		await expect(dialog.getByText('Name ist erforderlich')).toBeVisible();
 
 		await context.close();
 	});

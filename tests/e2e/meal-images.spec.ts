@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createMeal, resetMeals, setLocale, gotoEnglish } from './_helpers';
+import { createMeal, resetMeals, setLocale } from './_helpers';
 import { deflateSync } from 'node:zlib';
 
 // ---------------------------------------------------------------------------
@@ -90,82 +90,41 @@ test.describe('Meal images', () => {
 	});
 
 	test('adds a meal with an image and shows a thumbnail', async ({ page }) => {
-		await page.goto('/');
-		await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Pasta Photo');
-		await page.getByRole('textbox', { name: 'Ingredient name 1' }).fill('noodles');
-		await page.locator('input[type="file"]').setInputFiles({
+		await page.goto('/meals');
+		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
+		await expect(page.getByRole('dialog')).toBeVisible();
+		await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill('Pasta Photo');
+		await page.getByRole('dialog').getByLabel('Instructions').fill('Cook.');
+		await page.getByRole('dialog').getByRole('textbox', { name: 'Ingredient name 1' }).fill('noodles');
+		await page.getByRole('dialog').locator('input[type="file"]').setInputFiles({
 			name: 'photo.png',
 			mimeType: 'image/png',
 			buffer: SMALL_PNG,
 		});
-		await page.getByRole('button', { name: 'Add', exact: true }).click();
+		await page.getByRole('dialog').getByRole('button', { name: 'Add', exact: true }).click();
 
 		const mealCard = page.getByRole('listitem').filter({ hasText: 'Pasta Photo' });
 		await expect(mealCard).toBeVisible();
-		await expect(mealCard.locator('img.meal-card__thumb')).toBeVisible();
-	});
-
-	test('thumbnail click opens lightbox and Escape closes it', async ({ page }) => {
-		await page.goto('/');
-		await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Lightbox Test');
-		await page.getByRole('textbox', { name: 'Ingredient name 1' }).fill('test');
-		await page.locator('input[type="file"]').setInputFiles({
-			name: 'photo.png',
-			mimeType: 'image/png',
-			buffer: SMALL_PNG,
-		});
-		await page.getByRole('button', { name: 'Add', exact: true }).click();
-
-		const mealCard = page.getByRole('listitem').filter({ hasText: 'Lightbox Test' });
-		await expect(mealCard).toBeVisible();
-
-		await mealCard.locator('img.meal-card__thumb').click();
-		const lightbox = page.locator('.lightbox');
-		await expect(lightbox).toBeVisible();
-		await expect(lightbox.locator('img')).toBeVisible();
-
-		await page.keyboard.press('Escape');
-		await expect(lightbox).not.toBeVisible();
-	});
-
-	test('clicking outside the lightbox image closes it', async ({ page }) => {
-		await page.goto('/');
-		await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Backdrop Test');
-		await page.getByRole('textbox', { name: 'Ingredient name 1' }).fill('test');
-		await page.locator('input[type="file"]').setInputFiles({
-			name: 'photo.png',
-			mimeType: 'image/png',
-			buffer: SMALL_PNG,
-		});
-		await page.getByRole('button', { name: 'Add', exact: true }).click();
-
-		const mealCard = page.getByRole('listitem').filter({ hasText: 'Backdrop Test' });
-		await expect(mealCard).toBeVisible();
-		await mealCard.locator('img.meal-card__thumb').click();
-
-		const lightbox = page.locator('.lightbox');
-		await expect(lightbox).toBeVisible();
-
-		await lightbox.click({ position: { x: 10, y: 10 } });
-		await expect(lightbox).not.toBeVisible();
+		await expect(mealCard.locator('img.meal-card__hero')).toBeVisible();
 	});
 
 	test('editing a meal to add an image sets has_image', async ({ page, request }) => {
-		await gotoEnglish(page);
 		await createMeal(page, 'No Image Yet', [{ name: 'stuff' }]);
 
 		const mealCard = page.getByRole('listitem').filter({ hasText: 'No Image Yet' });
-		await expect(mealCard.locator('img.meal-card__thumb')).not.toBeAttached();
+		await expect(mealCard.locator('img.meal-card__hero')).not.toBeAttached();
 
+		await mealCard.hover();
 		await mealCard.getByRole('button', { name: 'Edit' }).click();
-		await page.locator('input[type="file"]').setInputFiles({
+		const editDialog = page.getByRole('dialog', { name: /^Edit: |^Bearbeiten: / });
+		await editDialog.locator('input[type="file"]').setInputFiles({
 			name: 'photo.png',
 			mimeType: 'image/png',
 			buffer: SMALL_PNG,
 		});
-		await page.getByRole('button', { name: 'Save' }).click();
+		await editDialog.getByRole('button', { name: 'Save' }).click();
 
-		await expect(page.getByRole('listitem').filter({ hasText: 'No Image Yet' }).locator('img.meal-card__thumb')).toBeVisible();
+		await expect(page.getByRole('listitem').filter({ hasText: 'No Image Yet' }).locator('img.meal-card__hero')).toBeVisible();
 
 		const res = await request.get('/api/meals?search=No Image Yet');
 		const meals = await res.json() as Array<{ id: number; has_image: boolean }>;
@@ -175,15 +134,18 @@ test.describe('Meal images', () => {
 
 
 	test('uploading a new image replaces the old one', async ({ page, request }) => {
-		await page.goto('/');
-		await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Replace Test');
-		await page.getByRole('textbox', { name: 'Ingredient name 1' }).fill('test');
-		await page.locator('input[type="file"]').setInputFiles({
+		await page.goto('/meals');
+		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
+		await expect(page.getByRole('dialog')).toBeVisible();
+		await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill('Replace Test');
+		await page.getByRole('dialog').getByLabel('Instructions').fill('Cook.');
+		await page.getByRole('dialog').getByRole('textbox', { name: 'Ingredient name 1' }).fill('test');
+		await page.getByRole('dialog').locator('input[type="file"]').setInputFiles({
 			name: 'photo.png',
 			mimeType: 'image/png',
 			buffer: SMALL_PNG,
 		});
-		await page.getByRole('button', { name: 'Add', exact: true }).click();
+		await page.getByRole('dialog').getByRole('button', { name: 'Add', exact: true }).click();
 
 		const mealCard = page.getByRole('listitem').filter({ hasText: 'Replace Test' });
 		await expect(mealCard).toBeVisible({ timeout: 10_000 });
@@ -196,40 +158,47 @@ test.describe('Meal images', () => {
 		expect(imgRes.status()).toBe(200);
 		const beforeBytes = Buffer.from(await imgRes.body());
 
+		await mealCard.hover();
 		await mealCard.getByRole('button', { name: 'Edit' }).click();
-		await page.locator('input[type="file"]').setInputFiles({
+		const editDialog = page.getByRole('dialog', { name: /^Edit: |^Bearbeiten: / });
+		await editDialog.locator('input[type="file"]').setInputFiles({
 			name: 'tiny.png',
 			mimeType: 'image/png',
 			buffer: TINY_PNG,
 		});
-		await page.getByRole('button', { name: 'Save' }).click();
+		await editDialog.getByRole('button', { name: 'Save' }).click();
 
-		await expect(mealCard.locator('img.meal-card__thumb')).toBeVisible();
+		await expect(mealCard.locator('img.meal-card__hero')).toBeVisible();
 		const afterRes = await request.get(`/api/meals/${mealId}/image`);
 		const afterBytes = Buffer.from(await afterRes.body());
 		expect(Buffer.compare(beforeBytes, afterBytes)).not.toBe(0);
 	});
 	test('removing an image via the form clears has_image', async ({ page, request }) => {
-		await page.goto('/');
-		await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Remove Test');
-		await page.getByRole('textbox', { name: 'Ingredient name 1' }).fill('test');
-		await page.locator('input[type="file"]').setInputFiles({
+		await page.goto('/meals');
+		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
+		await expect(page.getByRole('dialog')).toBeVisible();
+		await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill('Remove Test');
+		await page.getByRole('dialog').getByLabel('Instructions').fill('Cook.');
+		await page.getByRole('dialog').getByRole('textbox', { name: 'Ingredient name 1' }).fill('test');
+		await page.getByRole('dialog').locator('input[type="file"]').setInputFiles({
 			name: 'photo.png',
 			mimeType: 'image/png',
 			buffer: SMALL_PNG,
 		});
-		await page.getByRole('button', { name: 'Add', exact: true }).click();
+		await page.getByRole('dialog').getByRole('button', { name: 'Add', exact: true }).click();
 
 		const mealCard = page.getByRole('listitem').filter({ hasText: 'Remove Test' });
-		await expect(mealCard.locator('img.meal-card__thumb')).toBeVisible();
+		await expect(mealCard.locator('img.meal-card__hero')).toBeVisible();
 
+		await mealCard.hover();
 		await mealCard.getByRole('button', { name: 'Edit' }).click();
-		await page.getByRole('button', { name: 'Remove image' }).click();
-		await page.getByRole('button', { name: 'Save' }).click();
+		const editDialog = page.getByRole('dialog', { name: /^Edit: |^Bearbeiten: / });
+		await editDialog.getByRole('button', { name: 'Remove image' }).click();
+		await editDialog.getByRole('button', { name: 'Save' }).click();
 
 		const updatedCard = page.getByRole('listitem').filter({ hasText: 'Remove Test' });
 		await expect(updatedCard).toBeVisible();
-		await expect(updatedCard.locator('img.meal-card__thumb')).not.toBeAttached();
+		await expect(updatedCard.locator('img.meal-card__hero')).not.toBeAttached();
 
 		const res = await request.get('/api/meals?search=Remove Test');
 		const meals = await res.json() as Array<{ has_image: boolean }>;
@@ -237,22 +206,24 @@ test.describe('Meal images', () => {
 	});
 
 	test('uploading a non-image file shows server error inline', async ({ page }) => {
-		await page.goto('/');
-		await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Bad File');
-		await page.getByRole('textbox', { name: 'Ingredient name 1' }).fill('test');
-		await page.locator('input[type="file"]').setInputFiles({
+		await page.goto('/meals');
+		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
+		await expect(page.getByRole('dialog')).toBeVisible();
+		await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill('Bad File');
+		await page.getByRole('dialog').getByLabel('Instructions').fill('Cook.');
+		await page.getByRole('dialog').getByRole('textbox', { name: 'Ingredient name 1' }).fill('test');
+		await page.getByRole('dialog').locator('input[type="file"]').setInputFiles({
 			name: 'readme.txt',
 			mimeType: 'text/plain',
 			buffer: Buffer.from('this is not an image'),
 		});
-		await page.getByRole('button', { name: 'Add', exact: true }).click();
+		await page.getByRole('dialog').getByRole('button', { name: 'Add', exact: true }).click();
 		// The exact error message may vary; check form-error appears
-		await expect(page.locator('.form-error')).toBeVisible();
+		await expect(page.getByRole('dialog').locator('.form-error')).toBeVisible();
 		await expect(page.getByRole('listitem').filter({ hasText: 'Bad File' })).not.toBeAttached();
 	});
 
 	test('meals without images render no img tag', async ({ page }) => {
-		await gotoEnglish(page);
 		await createMeal(page, 'Plain Meal', [{ name: 'x' }]);
 
 		const mealCard = page.getByRole('listitem').filter({ hasText: 'Plain Meal' });
@@ -263,15 +234,18 @@ test.describe('Meal images', () => {
 	test('uploading an image larger than 4K downscales on the longer edge', async ({ page, request }) => {
 		test.setTimeout(60_000);
 
-		await page.goto('/');
-		await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Big Photo');
-		await page.getByRole('textbox', { name: 'Ingredient name 1' }).fill('test');
-		await page.locator('input[type="file"]').setInputFiles({
+		await page.goto('/meals');
+		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
+		await expect(page.getByRole('dialog')).toBeVisible();
+		await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill('Big Photo');
+		await page.getByRole('dialog').getByLabel('Instructions').fill('Cook.');
+		await page.getByRole('dialog').getByRole('textbox', { name: 'Ingredient name 1' }).fill('test');
+		await page.getByRole('dialog').locator('input[type="file"]').setInputFiles({
 			name: 'oversized.png',
 			mimeType: 'image/png',
 			buffer: OVERSIZED_PNG,
 		});
-		await page.getByRole('button', { name: 'Add', exact: true }).click();
+		await page.getByRole('dialog').getByRole('button', { name: 'Add', exact: true }).click();
 
 		await expect(page.getByRole('listitem').filter({ hasText: 'Big Photo' })).toBeVisible({ timeout: 30_000 });
 
