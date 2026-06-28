@@ -9,6 +9,10 @@
   <a href="https://github.com/RouHim/mealme/actions/workflows/ci.yml"><img src="https://github.com/RouHim/mealme/actions/workflows/ci.yml/badge.svg" alt="CI/CD"></a>
 </p>
 
+<p align="center">
+  <img src=".github/readme/screenshot.png" width="720" alt="MealMe meals screen showing 10 meals with images">
+</p>
+
 **MealMe** is a personal meal manager that runs entirely on your computer — no cloud, no accounts, no subscriptions. Add meals, search your collection, plan your week, and import recipes from the web or from photos using AI.
 
 ## What you can do
