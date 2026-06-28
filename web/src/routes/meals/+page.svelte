@@ -226,7 +226,7 @@
 					aria-label={t('searchAriaLabel')}
 				/>
 			</div>
-			<button type="button" class="nav-link" onclick={openAdd}>
+			<button type="button" class="btn btn--primary" onclick={openAdd}>
 				<Icon name="plus" size={16} />
 				{t('navAddMeal')}
 			</button>
@@ -245,7 +245,6 @@
 	{/if}
 
 	<section class="meal-list-section">
-		<h2>{t('sectionAllMeals')}</h2>
 		{#if meals.length === 0}
 			{#if searchTerm}
 			<div class="no-results">
@@ -437,10 +436,7 @@
 		top: 0;
 		z-index: 20;
 		padding: var(--space-3) var(--space-4);
-		border-radius: 0;
-		border-left: none;
-		border-right: none;
-		border-top: none;
+		border-radius: var(--radius-lg);
 	}
 	.page-header__wordmark {
 		font-family: var(--font-display);
@@ -471,9 +467,9 @@
 		width: 220px;
 	}
 	.page-header__search .search__input:focus {
-		outline: none;
+		outline: 2px solid var(--color-primary);
+		outline-offset: 2px;
 		border-color: var(--color-primary);
-		box-shadow: none;
 	}
 	.nav-link {
 		display: inline-flex;
@@ -489,9 +485,6 @@
 		background: var(--glass-scrim);
 		border-radius: var(--radius-full);
 		padding: var(--space-1) var(--space-2);
-	}
-	.meal-list-section h2 {
-		margin-bottom: var(--space-4);
 	}
 	.meal-list {
 		list-style: none;

@@ -617,6 +617,44 @@ button {
 	background: var(--glass-bg-strong);
 }
 
+/* App header bar — shared sticky glass top bar (brand left, actions right).
+   Documented shape rule: container = radius-lg 16px; interactive controls inside = radius-full pill. */
+.page-header,
+.planner-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: var(--space-3);
+	position: sticky;
+	top: 0;
+	z-index: 20;
+	padding: var(--space-3) var(--space-4);
+	border-radius: var(--radius-lg);
+	margin-bottom: var(--space-2);
+}
+.page-header__right {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+}
+.nav-link {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-primary);
+	text-decoration: none;
+	font-weight: var(--weight-medium);
+	font-size: var(--text-sm);
+}
+.nav-link:hover { text-decoration: underline; }
+.page-header.glass .nav-link,
+.planner-header.glass .nav-link {
+	background: var(--glass-scrim);
+	border-radius: var(--radius-full);
+	padding: var(--space-1) var(--space-2);
+}
+
 @media (prefers-contrast: more) {
 	:root {
 		--color-text: #000000;
@@ -666,16 +704,19 @@ button {
 	gap: var(--space-1);
 	padding: var(--space-1) var(--space-3);
 	font-size: var(--text-xs);
-	color: var(--color-text-muted);
-	background: transparent;
-	border: 1px solid var(--color-border);
+	color: var(--color-text-secondary);
+	background: var(--glass-bg);
+	-webkit-backdrop-filter: blur(var(--glass-blur));
+	backdrop-filter: blur(var(--glass-blur));
+	border: 1px solid var(--glass-border);
 	border-radius: var(--radius-full);
 	cursor: pointer;
-	transition: color var(--transition-fast), border-color var(--transition-fast);
+	transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
 }
 
 .theme-toggle button:hover {
-	color: var(--color-text-secondary);
+	color: var(--color-text);
+	background: var(--glass-bg-strong);
 	border-color: var(--color-border-strong);
 }
 
