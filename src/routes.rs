@@ -444,15 +444,15 @@ mod tests {
         let app = Router::new()
             .route("/meals", get(list_meals).post(create_meal))
             .route(
-                "/meals/:id",
+                "/meals/{id}",
                 get(get_meal).put(update_meal).delete(delete_meal),
             )
-            .route("/meals/:id/image", get(get_meal_image))
+            .route("/meals/{id}/image", get(get_meal_image))
             .route("/import/url", post(import_from_url))
             .route("/import/paste", post(import_from_paste))
             .route("/import/llm", post(import_from_llm))
             .route("/plans", get(get_plans).post(create_plan))
-            .route("/plans/:year/:week", put(update_plan).delete(delete_plan))
+            .route("/plans/{year}/{week}", put(update_plan).delete(delete_plan))
             .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024))
             .with_state(state);
         TestCtx { app, _dir: dir }

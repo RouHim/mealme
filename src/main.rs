@@ -70,18 +70,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api = Router::new()
         .route("/meals", get(routes::list_meals).post(routes::create_meal))
         .route(
-            "/meals/:id",
+            "/meals/{id}",
             get(routes::get_meal)
                 .put(routes::update_meal)
                 .delete(routes::delete_meal),
         )
-        .route("/meals/:id/image", get(routes::get_meal_image))
+        .route("/meals/{id}/image", get(routes::get_meal_image))
         .route("/import/url", post(routes::import_from_url))
         .route("/import/llm", post(routes::import_from_llm))
         .route("/import/paste", post(routes::import_from_paste))
         .route("/plans", get(routes::get_plans).post(routes::create_plan))
         .route(
-            "/plans/:year/:week",
+            "/plans/{year}/{week}",
             put(routes::update_plan).delete(routes::delete_plan),
         )
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024))

@@ -1,0 +1,50 @@
+name: Bug Report
+description: File a bug report to help us improve
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Steps to reproduce the behavior:
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Standalone binary (release)
+        - cargo run
+        - (other)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The version of MealMe you are running (shown in the footer or via `mealme --version`).
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: If applicable, paste any relevant log output. This will be automatically formatted as code.
+      render: shell

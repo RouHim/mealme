@@ -1,0 +1,193 @@
+name: CI/CD
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  lint-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+      - name: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: cargo deny
+        run: |
+          cargo install cargo-deny --locked
+          cargo deny check
+
+  rust-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: cargo test
+        run: cargo test
+      - name: cargo build --release
+        run: cargo build --release
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - uses: extractions/setup-just@v2
+        with:
+          just-version: 1.52.0
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('tests/package-lock.json') }}
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: cd tests && npx playwright install --with-deps chromium
+      - name: Install E2E deps
+        run: cd tests && npm ci
+      - name: Run E2E tests
+        run: just e2e
+      - name: Upload HTML report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: tests/playwright-report/
+          retention-days: 14
+      - name: Upload JUnit XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-results
+          path: tests/results.xml
+          retention-days: 14
+
+  create-release:
+    needs: [lint-format, rust-tests, e2e-tests]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: Install semantic-release
+        run: |
+          npm install -g \
+            semantic-release \
+            @semantic-release/git \
+            @semantic-release/changelog \
+            @semantic-release/commit-analyzer \
+            @semantic-release/release-notes-generator \
+            conventional-changelog-conventionalcommits
+      - name: semantic-release
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          BEFORE_TAG=$(git tag --list 'v*' --sort=-version:refname | head -n1)
+          npx semantic-release
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --tags --force
+          AFTER_TAG=$(git tag --list 'v*' --sort=-version:refname | head -n1)
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          if [ -n "$AFTER_TAG" ] && [ "$AFTER_TAG" != "$BEFORE_TAG" ]; then
+            echo "new_release_published=true" >> "$GITHUB_OUTPUT"
+            echo "new_release_version=${AFTER_TAG#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "new_release_published=false" >> "$GITHUB_OUTPUT"
+            echo "new_release_version=" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-binaries:
+    needs: create-release
+    if: github.ref == 'refs/heads/main' && needs.create-release.outputs.new_release_published == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            image: ghcr.io/rust-cross/rust-musl-cross:x86_64-musl
+            name: mealme-x86_64-unknown-linux-musl
+          - target: aarch64-unknown-linux-musl
+            image: ghcr.io/rust-cross/rust-musl-cross:aarch64-musl
+            name: mealme-aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: Pre-build web/build on host (musl container has no Node)
+        run: |
+          cd web && npm ci && npm run build
+          test -d build
+      - name: Configure git safe directory (host)
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build in musl container
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ${{ matrix.image }}
+          options: -v ${{ github.workspace }}:/work -w /work
+          run: |
+            git config --global --add safe.directory /work
+            cargo build --release --target ${{ matrix.target }}
+            cp target/${{ matrix.target }}/release/mealme ${{ matrix.name }}
+      - name: Verify static linking
+        run: |
+          file ${{ matrix.name }}
+          file ${{ matrix.name }} | grep -Eq "statically linked|static-pie linked"
+          ldd ${{ matrix.name }} 2>&1 | tee ldd.txt
+          grep -Eq "not a dynamic executable|statically linked" ldd.txt
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          TAG=$(git ls-remote --tags https://github.com/${{ github.repository }} | grep -o 'refs/tags/v[0-9.]*$' | sort -V | tail -n1 | sed 's|refs/tags/||')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Upload to release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.get_tag.outputs.tag }}
+          files: ${{ matrix.name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  gitleaks:
+    name: Gitleaks secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

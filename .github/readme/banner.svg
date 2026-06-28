@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" width="800" height="200">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1410"/>
+      <stop offset="100%" stop-color="#2a1f18"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="200" fill="url(#bg)"/>
+
+  <!-- Subtle plate outline (background circle) -->
+  <circle cx="190" cy="100" r="80" fill="none" stroke="#3a3028" stroke-width="1.5" opacity="0.6"/>
+
+  <!-- Fork (left) -->
+  <g transform="translate(140, 60)" fill="none" stroke="#d97757" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Handle -->
+    <line x1="25" y1="40" x2="25" y2="85"/>
+    <!-- Prongs -->
+    <line x1="12" y1="5" x2="12" y2="40"/>
+    <line x1="25" y1="5" x2="25" y2="40"/>
+    <line x1="38" y1="5" x2="38" y2="40"/>
+    <!-- Base curve -->
+    <path d="M10,10 Q25,0 40,10"/>
+  </g>
+
+  <!-- Knife (right) -->
+  <g transform="translate(195, 60)" fill="none" stroke="#d97757" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Handle -->
+    <line x1="25" y1="40" x2="25" y2="85"/>
+    <!-- Blade -->
+    <path d="M25,5 L25,40"/>
+    <!-- Blade curve (serrated edge hint) -->
+    <path d="M18,5 Q30,-2 35,10"/>
+    <!-- Blade back -->
+    <line x1="18" y1="5" x2="18" y2="20"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="370" y="108" font-family="system-ui, -apple-system, sans-serif" font-size="54" font-weight="700" fill="#e8e0d8" letter-spacing="-0.5">MealMe</text>
+
+  <!-- Subtitle -->
+  <text x="370" y="138" font-family="system-ui, -apple-system, sans-serif" font-size="18" fill="#8b8078" letter-spacing="1.5">LOCAL-FIRST MEAL MANAGER</text>
+</svg>

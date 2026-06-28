@@ -1,54 +1,50 @@
-# MealMe
+<p align="center">
+  <img src=".github/readme/banner.svg" width="600">
+</p>
 
-A single-binary local-first web application for managing a personal collection of meals. Built with Rust (axum + rusqlite) and Svelte 5, all frontend assets embedded in the binary.
+<p align="center">
+  <a href="https://github.com/RouHim/mealme/actions/workflows/ci.yml"><img src="https://github.com/RouHim/mealme/actions/workflows/ci.yml/badge.svg" alt="CI/CD"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://github.com/RouHim/mealme/releases/latest"><img src="https://img.shields.io/badge/arch-x86__64%20%7C%20arm64-blue" alt="Architecture: x86_64 | arm64"></a>
+  <img src="https://img.shields.io/badge/renovate-enabled-brightgreen.svg" alt="Renovate enabled">
+</p>
 
-## Quickstart
+## Features
+
+- **Local-first meal management** — add, edit, search, and delete meals with normalized ingredient rows and quantities; SQLite-backed, runs entirely from a single binary.
+- **Weekly meal planner** — `/planner` route exposes a week calendar for generating and managing weekly plans; plans aggregate ingredients and sum numeric quantities.
+- **Recipe import** — paste raw HTML/JSON-LD or fetch from a URL; the existing scraper normalizes into the same review-and-save `ImportDraft` workflow.
+- **LLM-powered recipe parsing** — attach a photo or text hint and a vision-capable LLM (OpenAI, Anthropic, Gemini, Groq, Ollama, and many more via `genai`) returns a structured recipe draft via a constrained tool definition.
+- **Single static binary** — entire Svelte 5 SPA embedded via `rust-embed`; no runtime Node, no nginx, no system SQLite (bundled via `sqlx`'s `sqlite` feature).
+- **Dual theme** — light/dark with `prefers-color-scheme`, ambient photo background, manual theme toggle with `localStorage` persistence.
+
+## Quick start
+
+### From source
 
 ```bash
+git clone https://github.com/RouHim/mealme.git
+cd mealme
 cargo run --release
 ```
 
-Then open **http://127.0.0.1:11341** in your browser.
+Open <http://127.0.0.1:11341>.
 
-The server listens on `127.0.0.1:11341` and persists data in `./data/meals.db` (SQLite, auto-created on first run; override the directory with the `MEALME_DATA_DIR` env var).
-
-## Requirements
-
-- **Rust** 1.85+ (with Cargo)
-- **Node.js** 26+ (build-time only — `build.rs` runs `npm install && npm run build` in `web/`)
-- **`just`** (optional, for E2E workflow — install via `cargo install just` or your package manager)
-
-No Docker, nginx, or Node.js runtime needed after compilation.
-
-## Development
+### Pre-built binary
 
 ```bash
-# Run all Rust tests
-cargo test
+# x86_64 / amd64
+curl -L -o mealme https://github.com/RouHim/mealme/releases/latest/download/mealme-x86_64-unknown-linux-musl
+chmod +x mealme
+./mealme
 
-# Run all frontend tests
-cd web && npm test
-
-# Build release binary
-cargo build --release
-
-# Run with debug logging
-RUST_LOG=debug cargo run
+# arm64 / aarch64
+curl -L -o mealme https://github.com/RouHim/mealme/releases/latest/download/mealme-aarch64-unknown-linux-musl
+chmod +x mealme
+./mealme
 ```
 
-### E2E tests
-
-```bash
-# One-time setup
-just e2e-install
-
-# Run the suite
-just e2e
-
-# Debug locally
-just e2e-headed
-just e2e-ui
-```
+The server listens on `127.0.0.1:11341` and persists data to `./data/meals.db` (override the directory with the `MEALME_DATA_DIR` env var).
 
 ## API
 
@@ -73,10 +69,9 @@ just e2e-ui
 
 Validation: meal name (1–200 chars), ingredient name (1–100 chars per line), ingredient quantity (0–50 chars), max 100 ingredient lines. All API paths are under `/api`; everything else serves the SPA frontend.
 
-
 ## LLM Recipe Import
 
-The app can parse recipes from photos or text descriptions using a vision-capable LLM (e.g. GPT‑4o).
+The app can parse recipes from photos or text descriptions using a vision-capable LLM (e.g. GPT-4o).
 
 ### Setup
 
@@ -106,3 +101,34 @@ At least one of hint or image is required. The LLM returns a structured recipe d
 ### How it works
 
 The backend sends a single chat completion request with a tool definition (`extract_recipe`) that constrains the LLM to return structured JSON. The response is mapped to the standard `ImportDraft` shape the frontend already understands. Requests time out after 60 seconds.
+
+## Development
+
+```bash
+# Run all Rust tests
+cargo test
+
+# Run all frontend tests
+cd web && npm test
+
+# Build release binary
+cargo build --release
+
+# Run with debug logging
+RUST_LOG=debug cargo run
+
+# E2E tests (Playwright)
+just e2e
+```
+
+## Contributing
+
+PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Security
+
+See [SECURITY.md](SECURITY.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

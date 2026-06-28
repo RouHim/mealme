@@ -3,18 +3,19 @@ name = "mealme"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
+license = "MIT"
 build = "build.rs"
 
 [dependencies]
-axum = { version = "0.7", default-features = false, features = ["json", "query", "macros", "tokio", "http1", "multipart"] }
+axum = { version = "0.8", default-features = false, features = ["json", "query", "macros", "tokio", "http1", "multipart"] }
 chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp"] }
 recipe-scraper = "0.1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "webpki-roots", "json"] }
-scraper = "0.23"
+scraper = "0.27"
 genai = "0.6"
 base64 = "0.22"
-rand = "0.9"
+rand = "0.10"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono"] }
 rust-embed = "8"
 serde = { version = "1", features = ["derive"] }

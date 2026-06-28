@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
-use rand::Rng;
-use rand::SeedableRng;
+use rand::RngExt;
 use rand::distr::weighted::WeightedIndex;
 use sqlx::Row;
 use sqlx::SqlitePool;
@@ -589,7 +588,7 @@ pub async fn select_meals_weighted(
     let _dist = WeightedIndex::new(&weights)
         .map_err(|e| AppError::Internal(format!("weighted index error: {e}")))?;
 
-    let mut rng = rand::rngs::StdRng::from_os_rng();
+    let mut rng: rand::rngs::StdRng = rand::make_rng();
     let picked_count = count.min(meals.len());
 
     let mut available: Vec<usize> = (0..meals.len()).collect();
