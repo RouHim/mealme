@@ -1,3 +1,12 @@
+## [1.3.1](https://github.com/RouHim/mealme/compare/v1.3.0...v1.3.1) (2026-06-28)
+
+
+### Bug Fixes
+
+* align playwright version, install browsers from tests dir, use pre-built binary ([f03f02a](https://github.com/RouHim/mealme/commit/f03f02a8a5ecbd50e3176d32a491a096583b169a))
+* hide 'not planned yet' footer on meal cards that haven't been planned ([3daedb6](https://github.com/RouHim/mealme/commit/3daedb6eb4f081ce682d1f0ba727dfd00d2b695e))
+* use pre-built binary in e2e webServer, fallback to cargo run ([9a8cf08](https://github.com/RouHim/mealme/commit/9a8cf081fd7964651d74914be02485cdaf19c115))
+
 # [1.3.0](https://github.com/RouHim/mealme/compare/v1.2.0...v1.3.0) (2026-06-28)
 
 
