@@ -330,7 +330,7 @@ fn is_recipe_type(json: &serde_json::Value) -> bool {
 }
 
 /// Download an image URL and convert to JPEG bytes. Best-effort: returns None on any failure.
-async fn try_download_image(client: &reqwest::Client, url: &str) -> Option<Vec<u8>> {
+pub(crate) async fn try_download_image(client: &reqwest::Client, url: &str) -> Option<Vec<u8>> {
     let resp = client.get(url).send().await.ok()?;
     if !resp.status().is_success() {
         return None;
@@ -374,6 +374,83 @@ pub fn extract_readable_text(html: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Resolve a possibly-relative URL against a base URL. Returns None if parsing fails.
+fn resolve_url(url: &str, base_url: &str) -> Option<String> {
+    let base = reqwest::Url::parse(base_url).ok()?;
+    reqwest::Url::options()
+        .base_url(Some(&base))
+        .parse(url.trim())
+        .ok()
+        .map(|u| u.to_string())
+}
+
+/// Extract candidate image URLs from raw HTML.
+/// Checks, in priority order: OpenGraph `og:image`, JSON-LD `image`,
+/// and `<img>` tags with recipe-relevant classes. Returns de-duplicated, absolute URLs.
+/// Returns an empty Vec (not an error) if no image URLs are found.
+pub fn extract_image_urls_from_html(html: &str, base_url: &str) -> Vec<String> {
+    let document = scraper::Html::parse_document(html);
+    let mut urls: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    // 1. OpenGraph og:image
+    if let Ok(sel) = scraper::Selector::parse(r#"meta[property="og:image"]"#) {
+        for el in document.select(&sel) {
+            if let Some(content) = el.value().attr("content") {
+                if let Some(abs) = resolve_url(content, base_url) {
+                    if seen.insert(abs.clone()) {
+                        urls.push(abs);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. JSON-LD image (reuse existing extract_image_url)
+    if let Ok(sel) = scraper::Selector::parse(r#"script[type="application/ld+json"]"#) {
+        for el in document.select(&sel) {
+            let block = el.text().collect::<String>();
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&block) {
+                if let Some(img) = extract_image_url(&json) {
+                    if let Some(abs) = resolve_url(&img, base_url) {
+                        if seen.insert(abs.clone()) {
+                            urls.push(abs);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. <img> tags with recipe-relevant classes
+    if let Ok(sel) = scraper::Selector::parse("img") {
+        for el in document.select(&sel) {
+            if let Some(src) = el.value().attr("src") {
+                let class = el.value().attr("class").unwrap_or("");
+                let is_relevant = class.split_whitespace().any(|c| {
+                    matches!(
+                        c,
+                        "wp-post-image"
+                            | "attachment-post-thumbnail"
+                            | "size-post-thumbnail"
+                            | "recipe-image"
+                            | "featured-image"
+                    )
+                });
+                if is_relevant {
+                    if let Some(abs) = resolve_url(src, base_url) {
+                        if seen.insert(abs.clone()) {
+                            urls.push(abs);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    urls
 }
 
 /// Returns `true` when `s` is a bare `http://` or `https://` URL with no
@@ -700,6 +777,77 @@ mod tests {
     #[test]
     fn extract_readable_text_empty_input() {
         assert_eq!(extract_readable_text(""), "");
+    }
+
+    // ── extract_image_urls_from_html ──────────────────────────────────
+
+    #[test]
+    fn extract_image_urls_finds_og_image() {
+        let html = r#"<html><head>
+<meta property="og:image" content="https://example.com/cake.jpg">
+</head><body></body></html>"#;
+        let urls = extract_image_urls_from_html(html, "https://example.com/page");
+        assert_eq!(urls, vec!["https://example.com/cake.jpg"]);
+    }
+
+    #[test]
+    fn extract_image_urls_finds_jsonld_image() {
+        let html = r#"<html><head>
+<script type="application/ld+json">
+{"@type":"Recipe","image":"https://example.com/pie.jpg","name":"Pie","recipeIngredient":["flour"],"recipeInstructions":"Bake"}
+</script>
+</head><body></body></html>"#;
+        let urls = extract_image_urls_from_html(html, "https://example.com/page");
+        assert_eq!(urls, vec!["https://example.com/pie.jpg"]);
+    }
+
+    #[test]
+    fn extract_image_urls_finds_wp_post_image_class() {
+        let html = r#"<html><body>
+<img class="attachment-post-thumbnail size-post-thumbnail wp-post-image" src="https://example.com/salad.jpg">
+</body></html>"#;
+        let urls = extract_image_urls_from_html(html, "https://example.com/page");
+        assert_eq!(urls, vec!["https://example.com/salad.jpg"]);
+    }
+
+    #[test]
+    fn extract_image_urls_deduplicates_and_preserves_priority() {
+        let html = r#"<html><head>
+<meta property="og:image" content="https://example.com/first.jpg">
+<script type="application/ld+json">
+{"@type":"Recipe","image":"https://example.com/first.jpg","name":"Pie","recipeIngredient":["flour"],"recipeInstructions":"Bake"}
+</script>
+</head><body>
+<img class="wp-post-image" src="https://example.com/second.jpg">
+</body></html>"#;
+        let urls = extract_image_urls_from_html(html, "https://example.com/page");
+        // og:image first (deduped), then the <img> — JSON-LD duplicate is dropped
+        assert_eq!(
+            urls,
+            vec![
+                "https://example.com/first.jpg",
+                "https://example.com/second.jpg"
+            ]
+        );
+    }
+
+    #[test]
+    fn extract_image_urls_resolves_relative_urls() {
+        let html = r#"<html><body>
+<img class="wp-post-image" src="/wp-content/uploads/2024/salad.jpg">
+</body></html>"#;
+        let urls = extract_image_urls_from_html(html, "https://example.com/recipe/yum-yum-salat/");
+        assert_eq!(
+            urls,
+            vec!["https://example.com/wp-content/uploads/2024/salad.jpg"]
+        );
+    }
+
+    #[test]
+    fn extract_image_urls_empty_when_no_images() {
+        let html = "<html><body><p>No images here</p></body></html>";
+        let urls = extract_image_urls_from_html(html, "https://example.com/page");
+        assert!(urls.is_empty());
     }
 
     // ── is_bare_url ────────────────────────────────────────────────────

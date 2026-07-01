@@ -414,10 +414,15 @@ pub async fn import_from_llm(
                 "URL returned no extractable text".into(),
             ));
         }
-        Some(recipe::truncate(
-            &format!("Recipe from {h}:\n{text}"),
-            MAX_HINT_CHARS,
-        ))
+        let mut prompt = format!("Recipe from {h}:\n{text}");
+        let image_urls = recipe::extract_image_urls_from_html(&html, h);
+        if !image_urls.is_empty() {
+            prompt.push_str(&format!(
+                "\n\nCandidate dish image URLs found on the page:\n{}",
+                image_urls.join("\n")
+            ));
+        }
+        Some(recipe::truncate(&prompt, MAX_HINT_CHARS))
     } else {
         hint
     };
@@ -438,12 +443,15 @@ pub async fn import_from_llm(
         None => None,
     };
 
+    let has_user_image = image.is_some();
+
     let draft = crate::llm_import::import_via_llm(
         &model,
         hint.as_deref(),
         image,
         base_url.as_deref(),
         api_key.as_deref(),
+        has_user_image,
     )
     .await?;
     Ok(Json(draft))
