@@ -5,6 +5,7 @@
 	import { initTheme, theme, cycleTheme } from '$lib/theme';
 	import { page } from '$app/state';
 	import Icon from '$lib/Icon.svelte';
+	import LanguageSwitcher from '$lib/LanguageSwitcher.svelte';
 	import { isLowPowerDevice } from '$lib/motion';
 	import { checkBringStatus } from '$lib/api';
 
@@ -83,6 +84,7 @@
 			title={`${t('themeToggle')}: ${theme.current === 'dark' ? t('themeDark') : theme.current === 'light' ? t('themeLight') : t('themeSystem')}`}>
 			<Icon name={theme.current === 'dark' ? 'moon' : theme.current === 'light' ? 'sun' : 'monitor'} size={16} />
 		</button>
+		<LanguageSwitcher />
 	</div>
 </header>
 

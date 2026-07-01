@@ -1,5 +1,7 @@
 export type Locale = 'en' | 'de';
 
+export type LocalePreference = 'en' | 'de' | 'system';
+
 export type TranslationKey =
 	| 'appTitle'
 	| 'appSubtitle'
@@ -81,6 +83,12 @@ export type TranslationKey =
 	| 'fieldImageReplace'
 	| 'fieldImageCurrent'
 	| 'fieldImageRemove'
+	| 'fieldImageUrlLoad'
+	| 'fieldImageUrlLoading'
+	| 'fieldImageUrlPlaceholder'
+	| 'imageErrorUrlGeneric'
+	| 'imageErrorUrlNotImage'
+	| 'imageErrorUrlUnreachable'
 	| 'imageStaged'
 	| 'imageStagedRemove'
 	| 'lightboxClose'
@@ -129,7 +137,8 @@ export type TranslationKey =
     | 'llmOllamaHint'
     | 'llmHintLabel'
     | 'llmImageLabel'
-    | 'llmImportHint'
+| 'llmSettingsChange'
+| 'llmSettingsHide'
     | 'llmErrorApiKey'
     | 'llmErrorTimeout'
     | 'llmErrorParseFailed'
@@ -165,4 +174,8 @@ export type TranslationKey =
     | 'importBulkReasonFetch'
     | 'importBulkReasonNoRecipe'
     | 'importBulkReasonValidation'
-    | 'importBulkNewBatch'
+	| 'importBulkNewBatch'
+	| 'languageLabel'
+	| 'languageSystem'
+	| 'languageEnglish'
+	| 'languageGerman';

@@ -1,13 +1,20 @@
-import type { Locale, TranslationKey } from './types';
+import type { Locale, LocalePreference, TranslationKey } from './types';
 import { en } from './en';
 import { de } from './de';
 
 export const dictionaries: Record<Locale, Record<TranslationKey, string>> = { en, de };
 
+const STORAGE_KEY = 'mealme-locale';
+
 let _locale = $state<Locale>('en');
+let _preference = $state<LocalePreference>('system');
 
 export function getLocale(): Locale {
 	return _locale;
+}
+
+export function getLocalePreference(): LocalePreference {
+	return _preference;
 }
 
 export function t(key: TranslationKey, params?: Record<string, string | undefined>): string {
@@ -31,12 +38,36 @@ export function formatDate(value: Date | string | number, options?: Intl.DateTim
 	return new Intl.DateTimeFormat(_locale, options).format(date);
 }
 
-
 export function detectInitialLocale(): Locale {
 	if (typeof navigator === 'undefined') return 'en';
 	return navigator.language.toLowerCase().startsWith('de') ? 'de' : 'en';
 }
 
+export function setLocale(pref: LocalePreference): void {
+	_preference = pref;
+	_locale = pref === 'system' ? detectInitialLocale() : pref;
+	if (typeof localStorage !== 'undefined') {
+		try {
+			localStorage.setItem(STORAGE_KEY, pref);
+		} catch {
+			// quota exceeded or private mode — silently ignore
+		}
+	}
+}
+
 export function initLocale(): void {
-	_locale = detectInitialLocale();
+	if (typeof localStorage === 'undefined') {
+		_preference = 'system';
+		_locale = detectInitialLocale();
+		return;
+	}
+	const stored = localStorage.getItem(STORAGE_KEY);
+	if (stored === 'en' || stored === 'de') {
+		_preference = stored;
+		_locale = stored;
+	} else {
+		// 'system', null, invalid, or corrupted — resolve via navigator; do NOT write
+		_preference = 'system';
+		_locale = detectInitialLocale();
+	}
 }

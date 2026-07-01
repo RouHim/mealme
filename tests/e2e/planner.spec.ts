@@ -98,30 +98,30 @@ test.describe('planner', () => {
 		await expect(input).toHaveValue('3');
 	});
 
-	test('given_no_toggle_exists_when_rendering_planner_then_no_lang_toggle_visible', async ({ page }) => {
+	test('given_language_switcher_when_rendering_planner_then_dropdown_visible', async ({ page }) => {
 		await page.goto('/planner');
-		await expect(page.locator('.lang-toggle')).toHaveCount(0);
+		await expect(page.locator('.lang-switcher')).toBeVisible();
 	});
 
-	test('given_no_toggle_exists_when_rendering_home_then_no_lang_toggle_visible', async ({ page }) => {
+	test('given_language_switcher_when_rendering_home_then_dropdown_visible', async ({ page }) => {
 		await page.goto('/');
-		await expect(page.locator('.lang-toggle')).toHaveCount(0);
+		await expect(page.locator('.lang-switcher')).toBeVisible();
 	});
 
-	test('given_navigator_de_DE_when_loading_app_then_mealme_locale_localStorage_is_not_written', async ({ browser }) => {
+	test('given_navigator_de_DE_when_loading_app_then_mealme_locale_not_written', async ({ browser }) => {
 		const context = await browser.newContext({ locale: 'de-DE' });
 		const page = await context.newPage();
 		await page.goto('/');
-		const stored = await page.evaluate(() => localStorage.getItem('mealme.locale'));
+		const stored = await page.evaluate(() => localStorage.getItem('mealme-locale'));
 		expect(stored).toBeNull();
 		await context.close();
 	});
 
-	test('given_navigator_en_US_when_loading_app_then_mealme_locale_localStorage_is_not_written', async ({ browser }) => {
+	test('given_navigator_en_US_when_loading_app_then_mealme_locale_not_written', async ({ browser }) => {
 		const context = await browser.newContext({ locale: 'en-US' });
 		const page = await context.newPage();
 		await page.goto('/');
-		const stored = await page.evaluate(() => localStorage.getItem('mealme.locale'));
+		const stored = await page.evaluate(() => localStorage.getItem('mealme-locale'));
 		expect(stored).toBeNull();
 		await context.close();
 	});

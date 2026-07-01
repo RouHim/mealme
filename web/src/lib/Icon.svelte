@@ -1,5 +1,5 @@
 <script lang="ts">
-	type IconName = 'search' | 'empty-meals' | 'circle-alert' | 'calendar' | 'chevron-left' | 'chevron-right' | 'plus' | 'trash-2' | 'x' | 'check' | 'pen-line' | 'utensils' | 'sun' | 'moon' | 'monitor' | 'soup' | 'loader-circle' | 'shopping-bag';
+	type IconName = 'search' | 'empty-meals' | 'circle-alert' | 'calendar' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'plus' | 'trash-2' | 'x' | 'check' | 'pen-line' | 'utensils' | 'sun' | 'moon' | 'monitor' | 'soup' | 'loader-circle' | 'shopping-bag' | 'image';
 	let { name, class: className = '', size = 24, spin = false }: { name: IconName; class?: string; size?: number; spin?: boolean } = $props();
 
 	let iconClass = $derived(spin ? `${className} icon-spin`.trim() : className);
@@ -41,6 +41,10 @@
 {:else if name === 'chevron-right'}
 	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
 		<path d="m9 18 6-6-6-6" />
+	</svg>
+{:else if name === 'chevron-down'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
+		<path d="m6 9 6 6 6-6" />
 	</svg>
 {:else if name === 'plus'}
 	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
@@ -115,6 +119,12 @@
 		<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
 		<path d="M3 6h18" />
 		<path d="M16 10a4 4 0 0 1-8 0" />
+	</svg>
+{:else if name === 'image'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
+		<rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+		<circle cx="9" cy="9" r="2" />
+		<path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
 	</svg>
 {/if}
 

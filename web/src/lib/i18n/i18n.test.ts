@@ -17,8 +17,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
 	t,
 	getLocale,
+	getLocalePreference,
 	detectInitialLocale,
 	initLocale,
+	setLocale,
 	formatNumber,
 	formatDate,
 	dictionaries,
@@ -161,6 +163,79 @@ describe('initLocale', () => {
 	it('given_navigator_is_en_then_init_locale_uses_en', () => {
 		initLocale();
 		expect(getLocale()).toBe('en');
+	});
+
+	it('given_stored_mealme_locale_is_de_then_initLocale_uses_de', () => {
+		localStorage.setItem('mealme-locale', 'de');
+		initLocale();
+		expect(getLocale()).toBe('de');
+		expect(getLocalePreference()).toBe('de');
+	});
+
+	it('given_stored_mealme_locale_is_system_and_navigator_de_then_initLocale_uses_de', () => {
+		localStorage.setItem('mealme-locale', 'system');
+		const saved = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+		Object.defineProperty(globalThis, 'navigator', {
+			value: { language: 'de-DE' },
+			configurable: true,
+			writable: true,
+		});
+		initLocale();
+		expect(getLocale()).toBe('de');
+		expect(getLocalePreference()).toBe('system');
+		expect(localStorage.getItem('mealme-locale')).toBe('system');
+		if (saved) {
+			Object.defineProperty(globalThis, 'navigator', saved);
+		} else {
+			delete (globalThis as Record<string, unknown>).navigator;
+		}
+	});
+
+	it('given_stored_mealme_locale_is_null_then_initLocale_uses_navigator_and_does_not_write', () => {
+		localStorage.removeItem('mealme-locale');
+		initLocale();
+		expect(getLocale()).toBe('en');
+		expect(localStorage.getItem('mealme-locale')).toBeNull();
+	});
+
+	it('given_stored_mealme_locale_is_invalid_then_initLocale_falls_back_and_does_not_write', () => {
+		localStorage.setItem('mealme-locale', 'fr');
+		initLocale();
+		expect(getLocale()).toBe('en');
+		expect(localStorage.getItem('mealme-locale')).toBe('fr');
+	});
+});
+
+describe('setLocale', () => {
+	it('given_no_stored_preference_when_setLocale_de_then_locale_is_de_and_stored', () => {
+		localStorage.clear();
+		setLocale('de');
+		expect(getLocale()).toBe('de');
+		expect(localStorage.getItem('mealme-locale')).toBe('de');
+	});
+
+	it('given_setLocale_system_then_locale_resolves_via_navigator_and_system_stored', () => {
+		const saved = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+		Object.defineProperty(globalThis, 'navigator', {
+			value: { language: 'de-DE' },
+			configurable: true,
+			writable: true,
+		});
+		setLocale('system');
+		expect(getLocale()).toBe('de');
+		expect(localStorage.getItem('mealme-locale')).toBe('system');
+		if (saved) {
+			Object.defineProperty(globalThis, 'navigator', saved);
+		} else {
+			delete (globalThis as Record<string, unknown>).navigator;
+		}
+	});
+
+	it('given_setLocale_does_not_throw_when_setItem_throws', () => {
+		const orig = localStorage.setItem;
+		localStorage.setItem = () => { throw new Error('quota'); };
+		expect(() => setLocale('en')).not.toThrow();
+		localStorage.setItem = orig;
 	});
 });
 
