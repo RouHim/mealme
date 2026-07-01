@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getPlan, mealImageUrl } from '$lib/api';
+    import { getPlan, mealImageUrl } from '$lib/api';
 	import { weekOfDate, mondaySundayOf } from '$lib/week';
 	import { t } from '$lib/i18n';
 	import { fly, scale } from 'svelte/transition';

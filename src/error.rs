@@ -36,23 +36,36 @@ pub enum AppError {
 
     #[error("no Bring! lists found in your account")]
     BringNoLists,
+
+    #[error("{0}")]
+    Llm(String, &'static str), // (message, error_code)
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message) = match &self {
-            AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
-            AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
-            AppError::PayloadTooLarge(msg) => (StatusCode::PAYLOAD_TOO_LARGE, msg.clone()),
-            AppError::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
-            AppError::Database(_err) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
-            AppError::BringAuthFailed(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
-            AppError::BringNetworkError(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
-            AppError::BringNoLists => (StatusCode::NOT_FOUND, self.to_string()),
+        let (status, message, code) = match &self {
+            AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string(), None),
+            AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
+            AppError::PayloadTooLarge(msg) => (StatusCode::PAYLOAD_TOO_LARGE, msg.clone(), None),
+            AppError::UnprocessableEntity(msg) => {
+                (StatusCode::UNPROCESSABLE_ENTITY, msg.clone(), None)
+            }
+            AppError::Database(_err) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string(), None),
+            AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone(), None),
+            AppError::BringAuthFailed(msg) => (StatusCode::UNAUTHORIZED, msg.clone(), None),
+            AppError::BringNetworkError(msg) => (StatusCode::BAD_GATEWAY, msg.clone(), None),
+            AppError::BringNoLists => (StatusCode::NOT_FOUND, self.to_string(), None),
+            AppError::Llm(msg, code) => {
+                let status = match *code {
+                    "llm_api_key_missing" => StatusCode::BAD_REQUEST,
+                    "llm_parse_failed" => StatusCode::UNPROCESSABLE_ENTITY,
+                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+                (status, msg.clone(), Some(*code))
+            }
         };
-        (status, Json(json!({ "error": message }))).into_response()
+        (status, Json(json!({ "error": message, "code": code }))).into_response()
     }
 }
 
@@ -75,12 +88,42 @@ mod tests {
             .expect("should read body");
         let body_str = String::from_utf8(body_bytes.to_vec()).expect("valid utf8");
         assert!(
-            body_str.contains("error"),
+            body_str.contains("\"error\""),
             "body should contain 'error' key, got: {body_str}"
         );
         assert!(
             body_str.contains(expected_contains),
             "body should contain '{expected_contains}', got: {body_str}"
+        );
+        assert!(
+            body_str.contains("\"code\""),
+            "body should contain 'code' key, got: {body_str}"
+        );
+    }
+
+    async fn assert_response_code(
+        err: AppError,
+        expected_status: StatusCode,
+        expected_contains: &str,
+        expected_code: &str,
+    ) {
+        let response: Response = err.into_response();
+        assert_eq!(response.status(), expected_status);
+        let body_bytes = to_bytes(response.into_body(), 1024)
+            .await
+            .expect("should read body");
+        let body_str = String::from_utf8(body_bytes.to_vec()).expect("valid utf8");
+        assert!(
+            body_str.contains("\"error\""),
+            "body should contain 'error' key, got: {body_str}"
+        );
+        assert!(
+            body_str.contains(expected_contains),
+            "body should contain '{expected_contains}', got: {body_str}"
+        );
+        assert!(
+            body_str.contains(&format!("\"code\":\"{expected_code}\"")),
+            "body should contain code '{expected_code}', got: {body_str}"
         );
     }
 
@@ -184,6 +227,61 @@ mod tests {
             AppError::BringNoLists,
             StatusCode::NOT_FOUND,
             "no Bring! lists found",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_llm_api_key_missing_when_into_response_then_returns_400() {
+        assert_response_code(
+            AppError::Llm("API key missing".into(), "llm_api_key_missing"),
+            StatusCode::BAD_REQUEST,
+            "API key missing",
+            "llm_api_key_missing",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_llm_timeout_when_into_response_then_returns_500() {
+        assert_response_code(
+            AppError::Llm("timed out".into(), "llm_timeout"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "timed out",
+            "llm_timeout",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_llm_parse_failed_when_into_response_then_returns_422() {
+        assert_response_code(
+            AppError::Llm("parse failed".into(), "llm_parse_failed"),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "parse failed",
+            "llm_parse_failed",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_llm_model_not_found_when_into_response_then_returns_500() {
+        assert_response_code(
+            AppError::Llm("model not found".into(), "llm_model_not_found"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "model not found",
+            "llm_model_not_found",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_llm_request_failed_when_into_response_then_returns_500() {
+        assert_response_code(
+            AppError::Llm("request failed".into(), "llm_request_failed"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "request failed",
+            "llm_request_failed",
         )
         .await;
     }

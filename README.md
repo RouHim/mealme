@@ -83,13 +83,36 @@ The ingredient summary merges identical ingredients across all planned meals and
 
 **From photo or text (AI)** — attach a photo of a dish or recipe card, optionally add a text hint, and a vision-capable LLM parses it into a structured recipe. This requires an API key from a supported provider (see [Configuration](#configuration)).
 
-All import methods use the same review screen — you can edit the extracted recipe before saving.
+#### Using AI recipe import
+
+1. Select your provider from the dropdown — only providers with a configured API key are selectable.
+2. Choose a model from the list fetched live from the provider's API.
+3. Either describe the dish in text, attach a photo, or both.
+4. Vision-capable models (e.g., `gpt-4o-mini`, `gemini-2.5-flash`, `llama3.2-vision`) are needed for photo input.
+5. The extracted recipe appears in the review form — edit before saving.
+
+#### Custom OpenAI-compatible endpoints
+
+Select "Custom OpenAI-compatible" as the provider to use any server with an OpenAI-compatible API — vLLM, LocalAI, LiteLLM router, LM Studio, text-generation-webui, or any server exposing `/v1/models` and `/v1/chat/completions`.
+
+1. Enter the base URL (e.g., `http://localhost:8080/v1/` for LM Studio, `http://localhost:4000/v1/` for LiteLLM router).
+2. Optionally enter an API key if your server requires authentication.
+3. Models are fetched live from the server's `/v1/models` endpoint.
+
+#### Troubleshooting AI import
+
+- **"No providers available"** — set an API key env var (e.g., `OPENAI_API_KEY`) or start a local Ollama server.
+- **"API key not configured"** — the env var was empty when the server started; restart after setting it.
+- **"Could not load models"** — check API key validity and network connection; for Ollama, ensure `ollama serve` is running on port 11434.
+- **"Request timed out"** — use a faster model, check your network, or try a local model.
+- **"Could not extract a recipe"** — use a clearer photo or a more descriptive text hint.
 
 ## Configuration
 
 | Variable | What it does | Default |
 |----------|--------------|---------|
 | `MEALME_DATA_DIR` | Where the database file lives | `./data` (next to the binary) |
+| `MEALME_PORT` | Port the server listens on | `11341` |
 
 ### LLM providers
 
@@ -99,17 +122,19 @@ To use the AI-powered recipe import, set an API key for your provider:
 |----------|---------------------|---------------|
 | OpenAI | `OPENAI_API_KEY` | `gpt-4o-mini` |
 | Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
-| Google | `GOOGLE_API_KEY` | `gemini-2.5-flash` |
+| Google | `GEMINI_API_KEY` | `gemini-2.5-flash` |
 | Groq | `GROQ_API_KEY` | `llama-4-maverick-17b-128e-instruct` |
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| xAI | `XAI_API_KEY` | `grok-3-mini` |
 | Ollama (local) | _(none — uses local Ollama server)_ | `llama3.2-vision` |
+
+Ollama needs no API key but requires a running local server (`ollama serve` on port 11434). Pull a vision-capable model first: `ollama pull llama3.2-vision`.
 
 Example:
 
 ```bash
 OPENAI_API_KEY=sk-... ./mealme
 ```
-
-### Bring! shopping list
 
 Send ingredients from your weekly plan directly to your [Bring!](https://getbring.com) shopping list. Each ingredient gets a one-click "Send to Bring!" button next to it in the planner's ingredient summary.
 

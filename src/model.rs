@@ -85,6 +85,33 @@ pub struct NewPlanRequest {
 pub struct PlanPatch {
     pub meal_ids: Vec<i64>,
 }
+
+// ---------------------------------------------------------------------------
+// Bulk import types
+// ---------------------------------------------------------------------------
+
+/// Request body for `POST /api/import/bulk`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkImportRequest {
+    pub urls: Vec<String>,
+}
+
+/// A single failed URL entry in a bulk import response.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkImportFailure {
+    pub url: String,
+    pub reason: String,
+}
+
+/// Response body for `POST /api/import/bulk`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkImportResult {
+    pub created: Vec<Meal>,
+    pub failed: Vec<BulkImportFailure>,
+}
 mod tests {
     #[allow(unused_imports)]
     use super::*;

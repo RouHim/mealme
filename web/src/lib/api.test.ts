@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste } from './api';
+import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, importBulk, listLlmProviders, listLlmModels, ApiError } from './api';
 import type { Meal, MealPayload, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
 
 const mockFetch = vi.fn();
@@ -149,10 +149,33 @@ describe('mealImageUrl', () => {
 });
 
 describe('error handling', () => {
-	it('extracts server error message from JSON body', async () => {
-		mockResponse(400, { error: 'name must not be empty' });
-		await expect(listMeals()).rejects.toThrow('name must not be empty');
-	});
+    it('extracts server error message from JSON body', async () => {
+        mockResponse(400, { error: 'name must not be empty', code: null });
+        await expect(listMeals()).rejects.toThrow('name must not be empty');
+    });
+
+    it('throws ApiError with code when code is present', async () => {
+        mockResponse(500, { error: 'timed out', code: 'llm_timeout' });
+        try {
+            await listMeals();
+            expect.fail('should have thrown');
+        } catch (err) {
+            expect(err).toBeInstanceOf(ApiError);
+            expect((err as ApiError).message).toBe('timed out');
+            expect((err as ApiError).code).toBe('llm_timeout');
+        }
+    });
+
+    it('throws ApiError with null code when no code in body', async () => {
+        mockResponse(400, { error: 'bad request' });
+        try {
+            await listMeals();
+            expect.fail('should have thrown');
+        } catch (err) {
+            expect(err).toBeInstanceOf(ApiError);
+            expect((err as ApiError).code).toBeNull();
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -256,6 +279,25 @@ describe('importFromPaste', () => {
 	});
 });
 
+
+// ---------------------------------------------------------------------------
+// Bulk import API
+// ---------------------------------------------------------------------------
+
+describe('importBulk', () => {
+	it('POSTs to /api/import/bulk with urls array', async () => {
+		const result = { created: [], failed: [] };
+		mockResponse(200, result);
+
+		const response = await importBulk({ urls: ['https://example.com/a', 'https://example.com/b'] });
+		expect(mockFetch).toHaveBeenCalledWith('/api/import/bulk', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ urls: ['https://example.com/a', 'https://example.com/b'] }),
+		});
+		expect(response).toEqual(result);
+	});
+});
 // ---------------------------------------------------------------------------
 // Bring! shopping list API
 // ---------------------------------------------------------------------------
@@ -314,4 +356,74 @@ describe('checkBringStatus', () => {
 
 		await expect(checkBringStatus()).rejects.toThrow('internal server error');
 	});
+});
+
+
+// ---------------------------------------------------------------------------
+// LLM provider & model listing API
+// ---------------------------------------------------------------------------
+
+describe('listLlmProviders', () => {
+    it('calls GET /api/llm/providers', async () => {
+        const providers = [{ id: 'openai', name: 'OpenAI', envVar: 'OPENAI_API_KEY', configured: false, supportsCustomEndpoint: false }];
+        mockResponse(200, { providers });
+        const result = await listLlmProviders();
+        expect(mockFetch).toHaveBeenCalledWith('/api/llm/providers', undefined);
+        expect(result).toEqual(providers);
+    });
+});
+
+describe('listLlmModels', () => {
+    it('calls GET /api/llm/models?provider=openai', async () => {
+        const models = { models: ['gpt-4o-mini', 'gpt-4o'] };
+        mockResponse(200, models);
+        const result = await listLlmModels('openai');
+        expect(mockFetch).toHaveBeenCalledWith('/api/llm/models?provider=openai', undefined);
+        expect(result).toEqual(models);
+    });
+
+    it('includes base_url and api_key for custom providers', async () => {
+        const models = { models: ['local-model'] };
+        mockResponse(200, models);
+        await listLlmModels('custom', 'http://localhost:8080/v1/', 'sk-key');
+        const url = mockFetch.mock.calls[0][0] as string;
+        expect(url).toContain('provider=custom');
+        expect(url).toContain('base_url=http%3A%2F%2Flocalhost%3A8080%2Fv1%2F');
+        expect(url).toContain('api_key=sk-key');
+    });
+});
+
+describe('importFromLlm', () => {
+    it('sends model, hint, image in multipart form', async () => {
+        const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
+        mockResponse(200, draft);
+        const file = new File([new Uint8Array([1])], 'photo.jpg', { type: 'image/jpeg' });
+        await importFromLlm('gpt-4o-mini', 'pasta dish', file);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        const [url, opts] = mockFetch.mock.calls[0];
+        expect(url).toBe('/api/import/llm');
+        expect(opts.method).toBe('POST');
+        const fd = opts.body as FormData;
+        expect(fd.get('model')).toBe('gpt-4o-mini');
+        expect(fd.get('hint')).toBe('pasta dish');
+        expect(fd.get('image')).toBeInstanceOf(File);
+    });
+
+    it('sends base_url and api_key for custom endpoints', async () => {
+        const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
+        mockResponse(200, draft);
+        await importFromLlm('local-model', null, null, 'http://localhost:8080/v1/', 'sk-123');
+        const fd = mockFetch.mock.calls[0][1].body as FormData;
+        expect(fd.get('base_url')).toBe('http://localhost:8080/v1/');
+        expect(fd.get('api_key')).toBe('sk-123');
+    });
+
+    it('omits base_url and api_key when not provided', async () => {
+        const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
+        mockResponse(200, draft);
+        await importFromLlm('gpt-4o-mini', 'pasta', null);
+        const fd = mockFetch.mock.calls[0][1].body as FormData;
+        expect(fd.get('base_url')).toBeNull();
+        expect(fd.get('api_key')).toBeNull();
+    });
 });

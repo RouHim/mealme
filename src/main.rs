@@ -5,6 +5,7 @@ mod error;
 mod image;
 mod jsonld;
 mod llm_import;
+
 mod model;
 mod recipe;
 mod routes;
@@ -80,7 +81,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/meals/{id}/image", get(routes::get_meal_image))
         .route("/import/url", post(routes::import_from_url))
         .route("/import/llm", post(routes::import_from_llm))
+        .route("/llm/providers", get(routes::llm_providers))
+        .route("/llm/models", get(routes::llm_models))
         .route("/import/paste", post(routes::import_from_paste))
+        .route("/import/bulk", post(routes::import_bulk))
         .route("/plans", get(routes::get_plans).post(routes::create_plan))
         .route(
             "/plans/{year}/{week}",

@@ -1,3 +1,5 @@
+use base64::Engine;
+use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -12,7 +14,10 @@ use crate::db;
 use crate::error::AppError;
 use crate::image;
 use crate::jsonld;
-use crate::model::{Meal, MealPatch, NewMeal, NewPlanRequest, Plan, PlanPatch, PlanSummaryItem};
+use crate::model::{
+    BulkImportFailure, BulkImportRequest, BulkImportResult, Meal, MealPatch, NewMeal,
+    NewPlanRequest, Plan, PlanPatch, PlanSummaryItem,
+};
 use crate::recipe;
 use crate::state::AppState;
 
@@ -317,6 +322,8 @@ pub async fn import_from_llm(
     let mut hint: Option<String> = None;
     let mut image_bytes: Option<Vec<u8>> = None;
     let mut image_content_type: Option<String> = None;
+    let mut base_url: Option<String> = None;
+    let mut api_key: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -349,6 +356,18 @@ pub async fn import_from_llm(
                 })?;
                 image_bytes = Some(data.to_vec());
             }
+            Some("base_url") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read base_url field: {e}"))
+                })?;
+                base_url = Some(text);
+            }
+            Some("api_key") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read api_key field: {e}"))
+                })?;
+                api_key = Some(text);
+            }
             _ => {}
         }
     }
@@ -358,6 +377,12 @@ pub async fn import_from_llm(
         .filter(|s| !s.is_empty())
         .ok_or_else(|| AppError::BadRequest("missing 'model' field".into()))?;
     let hint = hint.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let base_url = base_url
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let api_key = api_key
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     let image_bytes = match image_bytes {
         Some(b) if !b.is_empty() => Some(b),
@@ -369,10 +394,11 @@ pub async fn import_from_llm(
         ));
     }
 
+    const MAX_HINT_CHARS: usize = 20000;
     if let Some(h) = &hint {
-        if h.chars().count() > 5000 {
+        if h.chars().count() > MAX_HINT_CHARS {
             return Err(AppError::BadRequest(
-                "hint must be at most 5000 characters".into(),
+                "hint must be at most 20000 characters".into(),
             ));
         }
     }
@@ -393,8 +419,141 @@ pub async fn import_from_llm(
         None => None,
     };
 
-    let draft = crate::llm_import::import_via_llm(&model, hint.as_deref(), image).await?;
+    let draft = crate::llm_import::import_via_llm(
+        &model,
+        hint.as_deref(),
+        image,
+        base_url.as_deref(),
+        api_key.as_deref(),
+    )
+    .await?;
     Ok(Json(draft))
+}
+
+// ---------------------------------------------------------------------------
+// Bulk URL import handler
+// ---------------------------------------------------------------------------
+
+/// Maximum number of URLs accepted in a single bulk import request.
+const BULK_IMPORT_MAX_URLS: usize = 50;
+
+#[instrument(skip(state))]
+pub async fn import_bulk(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<BulkImportRequest>,
+) -> Result<(StatusCode, Json<BulkImportResult>), AppError> {
+    let urls: Vec<&str> = req
+        .urls
+        .iter()
+        .map(|u| u.trim())
+        .filter(|u| !u.is_empty())
+        .collect();
+
+    if urls.len() > BULK_IMPORT_MAX_URLS {
+        return Err(AppError::BadRequest(format!(
+            "maximum {} URLs allowed",
+            BULK_IMPORT_MAX_URLS
+        )));
+    }
+
+    let mut created: Vec<Meal> = Vec::new();
+    let mut failed: Vec<BulkImportFailure> = Vec::new();
+
+    for url in &urls {
+        match process_single_url(&state.pool, url).await {
+            Ok(meal) => created.push(meal),
+            Err(reason) => failed.push(BulkImportFailure {
+                url: url.to_string(),
+                reason,
+            }),
+        }
+    }
+
+    Ok((StatusCode::OK, Json(BulkImportResult { created, failed })))
+}
+
+/// Process a single URL: fetch, parse, validate, insert. Returns the created
+/// [`Meal`] on success or a human-readable failure reason on error.
+async fn process_single_url(pool: &SqlitePool, url: &str) -> Result<Meal, String> {
+    let draft = recipe::fetch_and_parse(url)
+        .await
+        .map_err(|e| classify_fetch_error(&e))?;
+
+    let new_meal = NewMeal {
+        name: draft.name,
+        ingredients: draft.ingredients,
+        instructions: draft.instructions,
+    };
+
+    // Decode and convert the image (if present) into owned JPEG bytes so the
+    // borrow lives long enough for ImageChange::Set.
+    let jpeg_bytes: Option<Vec<u8>> = if let Some(b64) = &draft.image_base64 {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64.as_bytes())
+            .map_err(|e| format!("image decode error: {e}"))?;
+        // Re-encode via convert_to_jpeg as a safety net (ensures consistent
+        // encoding even if the upstream downloader changes).
+        let jpeg =
+            image::convert_to_jpeg(&bytes).map_err(|e| format!("image conversion error: {e}"))?;
+        Some(jpeg)
+    } else {
+        None
+    };
+
+    let image_change = match &jpeg_bytes {
+        Some(bytes) => db::ImageChange::Set(bytes),
+        None => db::ImageChange::Keep,
+    };
+
+    db::insert_meal(pool, new_meal, image_change)
+        .await
+        .map_err(|e| classify_insert_error(&e))
+}
+
+/// Map an [`AppError`] from `fetch_and_parse` to a user-facing reason string.
+fn classify_fetch_error(err: &AppError) -> String {
+    match err {
+        AppError::NotFound => "no recipe found".into(),
+        _ => "fetch failed".into(),
+    }
+}
+
+/// Map an [`AppError`] from `insert_meal` / `validate_meal` to a user-facing reason string.
+fn classify_insert_error(err: &AppError) -> String {
+    match err {
+        AppError::Validation(_) => "validation failed".into(),
+        _ => err.to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LLM info handlers
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct ModelsQuery {
+    pub(crate) provider: String,
+    pub(crate) base_url: Option<String>,
+    pub(crate) api_key: Option<String>,
+}
+#[instrument(skip(_state))]
+pub async fn llm_providers(
+    State(_state): State<Arc<AppState>>,
+) -> Json<crate::llm_import::LlmProvidersResponse> {
+    Json(crate::llm_import::LlmProvidersResponse {
+        providers: crate::llm_import::list_providers(),
+    })
+}
+
+#[instrument(skip(_state))]
+pub async fn llm_models(
+    State(_state): State<Arc<AppState>>,
+    Query(q): Query<ModelsQuery>,
+) -> Result<Json<crate::llm_import::LlmModelsResponse>, AppError> {
+    let models =
+        crate::llm_import::list_models(&q.provider, q.base_url.as_deref(), q.api_key.as_deref())
+            .await?;
+    Ok(Json(crate::llm_import::LlmModelsResponse { models }))
 }
 // ---------------------------------------------------------------------------
 // Plan handlers
@@ -558,6 +717,9 @@ mod tests {
             .route("/import/url", post(import_from_url))
             .route("/import/paste", post(import_from_paste))
             .route("/import/llm", post(import_from_llm))
+            .route("/import/bulk", post(import_bulk))
+            .route("/llm/providers", get(llm_providers))
+            .route("/llm/models", get(llm_models))
             .route("/plans", get(get_plans).post(create_plan))
             .route("/plans/{year}/{week}", put(update_plan).delete(delete_plan))
             .route("/bring/items", post(add_bring_item))
@@ -1632,9 +1794,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn given_hint_over_5000_chars_when_import_llm_then_400() {
+    async fn given_hint_over_20000_chars_when_import_llm_then_400() {
         let ctx = setup().await;
-        let long_hint = "x".repeat(5001);
+        let long_hint = "x".repeat(20001);
         let (body, content_type) = build_llm_multipart(Some("gpt-4o-mini"), Some(&long_hint), None);
         let response = ctx
             .app
@@ -1679,6 +1841,96 @@ mod tests {
         );
     }
 
+    // ---------------------------------------------------------------
+    // LLM providers & models route tests
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn given_no_api_keys_when_list_providers_then_ollama_configured() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/llm/providers")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let providers = json["providers"].as_array().expect("providers array");
+        let ollama = providers
+            .iter()
+            .find(|p| p["id"].as_str() == Some("ollama"))
+            .expect("ollama provider");
+        assert_eq!(ollama["configured"], serde_json::Value::Bool(true));
+    }
+
+    #[tokio::test]
+    async fn list_providers_includes_custom() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/llm/providers")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let providers = json["providers"].as_array().expect("providers array");
+        let custom = providers
+            .iter()
+            .find(|p| p["id"].as_str() == Some("custom"))
+            .expect("custom provider");
+        assert_eq!(
+            custom["supportsCustomEndpoint"],
+            serde_json::Value::Bool(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn given_unknown_provider_when_list_models_then_400() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/llm/models?provider=nonexistent")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn given_custom_provider_no_base_url_when_list_models_then_400() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/llm/models?provider=custom")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
     // -----------------------------------------------------------------------
     // JSON-LD content-negotiation tests
     // -----------------------------------------------------------------------
@@ -2070,5 +2322,73 @@ mod tests {
                 std::env::set_var("BRING_PASSWORD", v);
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Bulk import tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn given_51_urls_when_bulk_import_then_400() {
+        let ctx = setup().await;
+        let urls: Vec<String> = (0..51)
+            .map(|i| format!("https://example.com/{i}"))
+            .collect();
+        let body = axum::body::Body::from(serde_json::to_vec(&json!({ "urls": urls })).unwrap());
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/import/bulk")
+            .header("Content-Type", "application/json")
+            .body(body)
+            .unwrap();
+        let resp = ctx.app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body_bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert!(body["error"].as_str().unwrap().contains("50"));
+    }
+
+    #[tokio::test]
+    async fn given_empty_urls_when_bulk_import_then_empty_result() {
+        let ctx = setup().await;
+        let body = axum::body::Body::from(
+            serde_json::to_vec(&json!({ "urls": ["", "  ", "\n"] })).unwrap(),
+        );
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/import/bulk")
+            .header("Content-Type", "application/json")
+            .body(body)
+            .unwrap();
+        let resp = ctx.app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body_bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert!(body["created"].as_array().unwrap().is_empty());
+        assert!(body["failed"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn given_not_found_error_when_classify_fetch_then_no_recipe_found() {
+        let err = AppError::NotFound;
+        assert_eq!(classify_fetch_error(&err), "no recipe found");
+    }
+
+    #[test]
+    fn given_other_error_when_classify_fetch_then_fetch_failed() {
+        let err = AppError::Internal("timeout".into());
+        assert_eq!(classify_fetch_error(&err), "fetch failed");
+    }
+
+    #[test]
+    fn given_validation_error_when_classify_insert_then_validation_failed() {
+        let err = AppError::Validation("too long".into());
+        assert_eq!(classify_insert_error(&err), "validation failed");
+    }
+
+    #[test]
+    fn given_db_error_when_classify_insert_then_returns_message() {
+        let err = AppError::BadRequest("something wrong".into());
+        assert_eq!(classify_insert_error(&err), "something wrong");
     }
 }

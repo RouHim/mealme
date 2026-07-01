@@ -1,23 +1,34 @@
-import type { Meal, MealPayload, ImportDraft, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
+import type { Meal, MealPayload, ImportDraft, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch, LlmProviderInfo, LlmModelsResponse, BulkImportRequest, BulkImportResult } from './types';
 
+
+export class ApiError extends Error {
+    constructor(message: string, public code: string | null) {
+        super(message);
+        this.name = 'ApiError';
+    }
+}
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-	const response = await fetch(url, options);
-	if (!response.ok) {
-		let message = '__REQUEST_FAILED__';
-		try {
-			const body = await response.json();
-			if (body && typeof body.error === 'string') {
-				message = body.error;
-			}
-		} catch {
-			// Response was not JSON; fall back to status text
-		}
-		throw new Error(message);
-	}
-	if (response.status === 204) {
-		return undefined as T;
-	}
-	return response.json() as Promise<T>;
+    const response = await fetch(url, options);
+    if (!response.ok) {
+        let message = '__REQUEST_FAILED__';
+        let code: string | null = null;
+        try {
+            const body = await response.json();
+            if (body && typeof body.error === 'string') {
+                message = body.error;
+            }
+            if (body && typeof body.code === 'string') {
+                code = body.code;
+            }
+        } catch {
+            // Response was not JSON; fall back to status text
+        }
+        throw new ApiError(message, code);
+    }
+    if (response.status === 204) {
+        return undefined as T;
+    }
+    return response.json() as Promise<T>;
 }
 
 export async function listMeals(search?: string): Promise<Meal[]> {
@@ -121,27 +132,42 @@ export async function importFromUrl(url: string): Promise<ImportDraft> {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ url }),
-	});
+    });
 }
 
 export async function importFromPaste(content: string): Promise<ImportDraft> {
-	return request<ImportDraft>('/api/import/paste', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ content }),
-	});
+    return request<ImportDraft>('/api/import/paste', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+    });
+}
+export async function importFromLlm(
+    model: string,
+    hint: string | null,
+    image: File | null,
+    baseUrl?: string,
+    apiKey?: string,
+): Promise<ImportDraft> {
+    const form = new FormData();
+    form.set('model', model);
+    if (hint && hint.trim()) form.set('hint', hint.trim());
+    if (image) form.set('image', image);
+    if (baseUrl) form.set('base_url', baseUrl);
+    if (apiKey) form.set('api_key', apiKey);
+    return request<ImportDraft>('/api/import/llm', { method: 'POST', body: form });
 }
 
-export async function importFromLlm(
-	model: string,
-	hint: string | null,
-	image: File | null,
-): Promise<ImportDraft> {
-	const form = new FormData();
-	form.set('model', model);
-	if (hint && hint.trim()) form.set('hint', hint.trim());
-	if (image) form.set('image', image);
-	return request<ImportDraft>('/api/import/llm', { method: 'POST', body: form });
+export async function listLlmProviders(): Promise<LlmProviderInfo[]> {
+    const data = await request<{ providers: LlmProviderInfo[] }>('/api/llm/providers');
+    return data.providers;
+}
+
+export async function listLlmModels(provider: string, baseUrl?: string, apiKey?: string): Promise<LlmModelsResponse> {
+    const params = new URLSearchParams({ provider });
+    if (baseUrl) params.set('base_url', baseUrl);
+    if (apiKey) params.set('api_key', apiKey);
+    return request<LlmModelsResponse>(`/api/llm/models?${params}`);
 }
 
 // Bring! shopping list API
@@ -166,4 +192,12 @@ export interface BringStatusResponse {
 
 export async function checkBringStatus(): Promise<BringStatusResponse> {
 	return request<BringStatusResponse>('/api/bring/status');
+}
+
+export async function importBulk(payload: BulkImportRequest): Promise<BulkImportResult> {
+	return request<BulkImportResult>('/api/import/bulk', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload),
+	});
 }

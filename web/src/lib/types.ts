@@ -76,3 +76,34 @@ export interface ImportFromUrlRequest {
 export interface ImportFromPasteRequest {
 	content: string;
 }
+
+export interface BulkImportRequest {
+	urls: string[];
+}
+
+export interface BulkImportFailure {
+	url: string;
+	reason: string;
+}
+
+export interface BulkImportResult {
+	created: Meal[];
+	failed: BulkImportFailure[];
+}
+
+
+export interface LlmProviderInfo {
+    id: string;
+    name: string;
+    envVar: string;
+    configured: boolean;
+    supportsCustomEndpoint: boolean;
+}
+
+export interface LlmProvidersResponse {
+    providers: LlmProviderInfo[];
+}
+
+export interface LlmModelsResponse {
+    models: string[];
+}
