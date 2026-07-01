@@ -1,5 +1,5 @@
 <script lang="ts">
-	type IconName = 'search' | 'empty-meals' | 'circle-alert' | 'calendar' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'plus' | 'trash-2' | 'x' | 'check' | 'pen-line' | 'utensils' | 'sun' | 'moon' | 'monitor' | 'soup' | 'loader-circle' | 'shopping-bag' | 'image';
+	type IconName = 'search' | 'empty-meals' | 'circle-alert' | 'calendar' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'plus' | 'trash-2' | 'x' | 'check' | 'pen-line' | 'utensils' | 'sun' | 'moon' | 'monitor' | 'soup' | 'loader-circle' | 'shopping-bag' | 'image' | 'link' | 'clipboard' | 'sparkles' | 'layers';
 	let { name, class: className = '', size = 24, spin = false }: { name: IconName; class?: string; size?: number; spin?: boolean } = $props();
 
 	let iconClass = $derived(spin ? `${className} icon-spin`.trim() : className);
@@ -125,6 +125,30 @@
 		<rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
 		<circle cx="9" cy="9" r="2" />
 		<path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+	</svg>
+{:else if name === 'link'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
+		<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+		<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+	</svg>
+{:else if name === 'clipboard'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
+		<rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
+		<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+	</svg>
+{:else if name === 'sparkles'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
+		<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+		<path d="M20 3v4" />
+		<path d="M22 5h-4" />
+		<path d="M4 17v2" />
+		<path d="M5 18H3" />
+	</svg>
+{:else if name === 'layers'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
+		<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" />
+		<path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65" />
+		<path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" />
 	</svg>
 {/if}
 

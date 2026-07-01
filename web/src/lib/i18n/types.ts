@@ -175,6 +175,8 @@ export type TranslationKey =
     | 'importBulkReasonNoRecipe'
     | 'importBulkReasonValidation'
 	| 'importBulkNewBatch'
+	| 'importCollapsedSummary'
+	| 'importCollapsedExpand'
 	| 'languageLabel'
 	| 'languageSystem'
 	| 'languageEnglish'

@@ -30,6 +30,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	let removeImage = $state(false);
 	let submitting = $state(false);
 	let importMode = $state<'url' | 'paste' | 'llm' | 'bulk'>('url');
+	let importCollapsed = $state(false);
 	let importUrl = $state('');
 	let importPaste = $state('');
     let importLlmProvider = $state('');
@@ -91,6 +92,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
             importLlmHint = '';
             importLlmImage = null;
             importToken++;
+            importCollapsed = true;
         } catch (err) {
             if (err instanceof ApiError) {
                 if (err.code === 'llm_timeout') {
@@ -260,6 +262,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
         importLlmImage = null;
         llmSettingsCollapsed = false;
         importing = false; importError = null; importToken++;
+        importCollapsed = false;
         bulkUrls = ''; bulkImporting = false; bulkResult = null; bulkError = null;
         addOpen = true;
         editHandled = false;
@@ -531,174 +534,192 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="edit-modal-overlay glass--strong" role="dialog" aria-label={t('addMealTitle')} tabindex="-1" transition:fade={{ duration: tierDuration(200) }} onclick={closeAdd} onkeydown={(e) => { if (e.key === 'Escape') closeAdd(); }} use:focusTrap>
-			<div class="edit-modal" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-				<button class="lightbox__close" onclick={closeAdd} aria-label={t('lightboxClose')}>
-					<Icon name="x" size={24} />
-				</button>
-				<section class="import-card">
-					<h2>{t('importHeading')}</h2>
-					<div class="import-tabs">
-						<button type="button" class="btn btn--ghost" class:btn--active={importMode === 'url'}
-							onclick={() => importMode = 'url'}>
-							{t('importTabUrl')}
-						</button>
-						<button type="button" class="btn btn--ghost" class:btn--active={importMode === 'paste'}
-							onclick={() => importMode = 'paste'}>
-							{t('importTabPaste')}
-						</button>
-						<button type="button" class="btn btn--ghost" class:btn--active={importMode === 'llm'}
-							onclick={() => importMode = 'llm'}>
-							{t('importTabLlm')}
-						</button>
-						<button type="button" class="btn btn--ghost" class:btn--active={importMode === 'bulk'}
-							onclick={() => importMode = 'bulk'}>
-							{t('importTabBulk')}
-						</button>
-					</div>
-					{#if importMode === 'url'}
-						<input type="url" bind:value={importUrl} placeholder={t('importUrlPlaceholder')} />
-						<button type="button" class="btn btn--primary" onclick={onImport} disabled={importing || !importUrl.trim()}>
-							{t('importButtonFetch')}
-						</button>
-					{:else if importMode === 'paste'}
-						<textarea bind:value={importPaste} placeholder={t('importPastePlaceholder')} rows="6"></textarea>
-						<button type="button" class="btn btn--primary" onclick={onImport} disabled={importing || !importPaste.trim()}>
-							{t('importButtonPaste')}
-						</button>
-                    {:else if importMode === 'bulk'}
-                        {#if bulkResult}
-                            <div class="bulk-results">
-                                <p class="bulk-results__success">
-                                    {t('importBulkResultsSuccess', { count: String(bulkResult.created.length) })}
-                                </p>
-                                {#if bulkResult.failed.length > 0}
-                                    <ul class="bulk-results__failures">
-                                        {#each bulkResult.failed as f}
-                                            <li class="form-error">
-                                                <Icon name="circle-alert" size={16} />
-                                                <span class="bulk-results__url">{f.url}</span>
-                                                <span class="bulk-results__reason">{t(f.reason === 'fetch failed' ? 'importBulkReasonFetch' : f.reason === 'no recipe found' ? 'importBulkReasonNoRecipe' : 'importBulkReasonValidation')}</span>
-                                            </li>
-                                        {/each}
-                                    </ul>
-                                {/if}
-                                <button type="button" class="btn btn--ghost" onclick={() => { bulkResult = null; bulkUrls = ''; bulkError = null; }}>
-                                    {t('importBulkNewBatch')}
-                                </button>
-                            </div>
-                        {:else}
-                            <label class="import-field">
-                                <span>{t('importBulkPlaceholder')}</span>
-                                <textarea bind:value={bulkUrls} placeholder={t('importBulkPlaceholder')} rows="8" disabled={bulkImporting}></textarea>
-                            </label>
-                            <button type="button" class="btn btn--primary" onclick={onBulkImport}
-                                disabled={bulkImporting || !bulkUrls.trim() || bulkUrls.split('\n').filter(l => l.trim().length > 0).length > 50}>
-                                {bulkImporting ? t('importButtonBulkLoading') : t('importButtonBulk')}
-                            </button>
-                        {/if}
-                    {:else}
-                        {#if llmProviders.length === 0 && !llmProvidersLoading}
-                            <p class="form-error">{t('llmNoProviders')}</p>
-                        {:else}
-                            {#if importLlmProvider}
-                                <div class="llm-settings-toggle">
-                                    {#if llmSettingsCollapsed}
-                                        <span class="llm-settings-summary">
-                                            {t('llmProviderLabel')}: {llmProviders.find(p => p.id === importLlmProvider)?.name ?? importLlmProvider}
-                                            · {t('llmModelLabel')}: {importLlmModel}
-                                        </span>
-                                    {/if}
-                                    <button type="button" class="btn btn--ghost"
-                                        onclick={() => llmSettingsCollapsed = !llmSettingsCollapsed}>
-                                        {llmSettingsCollapsed ? t('llmSettingsChange') : t('llmSettingsHide')}
-                                    </button>
-                                </div>
-                            {/if}
-                            {#if !llmSettingsCollapsed || !importLlmProvider}
-                                <div transition:fly={{ y: -4, duration: 150 }}>
-                                    <div class="llm-provider-row">
-                                        <select bind:value={importLlmProvider} onchange={onProviderChange}
-                                            disabled={llmProvidersLoading || importing}>
-                                            <option value="">{t('llmProviderPlaceholder')}</option>
-                                            {#each llmProviders as p}
-                                                <option value={p.id} disabled={!p.configured && p.id !== 'ollama'}>
-                                                    {p.name}{p.configured ? '' : ` (${t('notConfigured')})`}
-                                                </option>
-                                            {/each}
-                                        </select>
+			<div class="add-modal" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
+				<div class="add-modal__header">
+					<h2 class="add-modal__title">{t('addMealTitle')}</h2>
+					<button class="add-modal__close" onclick={closeAdd} aria-label={t('lightboxClose')}>
+						<Icon name="x" size={20} />
+					</button>
+				</div>
+				<div class="add-modal__body">
+					{#if importCollapsed && importMode !== 'bulk'}
+						<div class="import-section--collapsed">
+							<Icon name="check" size={18} />
+							<span class="import-section__summary">{t('importCollapsedSummary')}</span>
+							<button type="button" class="btn btn--ghost" onclick={() => importCollapsed = false}>
+								{t('importCollapsedExpand')}
+							</button>
+						</div>
+					{:else}
+						<section class="import-card">
+							<div class="import-tabs">
+								<button type="button" class="import-tab" class:import-tab--active={importMode === 'url'}
+									onclick={() => importMode = 'url'}>
+									<Icon name="link" size={16} />
+									<span>{t('importTabUrl')}</span>
+								</button>
+								<button type="button" class="import-tab" class:import-tab--active={importMode === 'paste'}
+									onclick={() => importMode = 'paste'}>
+									<Icon name="clipboard" size={16} />
+									<span>{t('importTabPaste')}</span>
+								</button>
+								<button type="button" class="import-tab" class:import-tab--active={importMode === 'llm'}
+									onclick={() => importMode = 'llm'}>
+									<Icon name="sparkles" size={16} />
+									<span>{t('importTabLlm')}</span>
+								</button>
+								<button type="button" class="import-tab" class:import-tab--active={importMode === 'bulk'}
+									onclick={() => importMode = 'bulk'}>
+									<Icon name="layers" size={16} />
+									<span>{t('importTabBulk')}</span>
+								</button>
+							</div>
+							{#if importMode === 'url'}
+								<input type="url" bind:value={importUrl} placeholder={t('importUrlPlaceholder')} />
+								<button type="button" class="btn btn--primary" onclick={onImport} disabled={importing || !importUrl.trim()}>
+									{t('importButtonFetch')}
+								</button>
+							{:else if importMode === 'paste'}
+								<textarea bind:value={importPaste} placeholder={t('importPastePlaceholder')} rows="6"></textarea>
+								<button type="button" class="btn btn--primary" onclick={onImport} disabled={importing || !importPaste.trim()}>
+									{t('importButtonPaste')}
+								</button>
+							{:else if importMode === 'bulk'}
+								{#if bulkResult}
+									<div class="bulk-results">
+										<p class="bulk-results__success">
+											{t('importBulkResultsSuccess', { count: String(bulkResult.created.length) })}
+										</p>
+										{#if bulkResult.failed.length > 0}
+											<ul class="bulk-results__failures">
+												{#each bulkResult.failed as f}
+													<li class="form-error">
+														<Icon name="circle-alert" size={16} />
+														<span class="bulk-results__url">{f.url}</span>
+														<span class="bulk-results__reason">{t(f.reason === 'fetch failed' ? 'importBulkReasonFetch' : f.reason === 'no recipe found' ? 'importBulkReasonNoRecipe' : 'importBulkReasonValidation')}</span>
+													</li>
+												{/each}
+											</ul>
+										{/if}
+										<button type="button" class="btn btn--ghost" onclick={() => { bulkResult = null; bulkUrls = ''; bulkError = null; }}>
+											{t('importBulkNewBatch')}
+										</button>
+									</div>
+								{:else}
+									<label class="import-field">
+										<span>{t('importBulkPlaceholder')}</span>
+										<textarea bind:value={bulkUrls} placeholder={t('importBulkPlaceholder')} rows="8" disabled={bulkImporting}></textarea>
+									</label>
+									<button type="button" class="btn btn--primary" onclick={onBulkImport}
+										disabled={bulkImporting || !bulkUrls.trim() || bulkUrls.split('\n').filter(l => l.trim().length > 0).length > 50}>
+										{bulkImporting ? t('importButtonBulkLoading') : t('importButtonBulk')}
+									</button>
+								{/if}
+							{:else}
+								{#if llmProviders.length === 0 && !llmProvidersLoading}
+									<p class="form-error">{t('llmNoProviders')}</p>
+								{:else}
+									{#if importLlmProvider}
+										<div class="llm-settings-toggle">
+											{#if llmSettingsCollapsed}
+												<span class="llm-settings-summary">
+													{t('llmProviderLabel')}: {llmProviders.find(p => p.id === importLlmProvider)?.name ?? importLlmProvider}
+													· {t('llmModelLabel')}: {importLlmModel}
+												</span>
+											{/if}
+											<button type="button" class="btn btn--ghost"
+												onclick={() => llmSettingsCollapsed = !llmSettingsCollapsed}>
+												{llmSettingsCollapsed ? t('llmSettingsChange') : t('llmSettingsHide')}
+											</button>
+										</div>
+									{/if}
+									{#if !llmSettingsCollapsed || !importLlmProvider}
+										<div transition:fly={{ y: -4, duration: 150 }}>
+											<div class="llm-provider-row">
+												<select bind:value={importLlmProvider} onchange={onProviderChange}
+													disabled={llmProvidersLoading || importing}>
+													<option value="">{t('llmProviderPlaceholder')}</option>
+													{#each llmProviders as p}
+														<option value={p.id} disabled={!p.configured && p.id !== 'ollama'}>
+															{p.name}{p.configured ? '' : ` (${t('notConfigured')})`}
+														</option>
+													{/each}
+												</select>
 
-                                        {#if importLlmProvider}
-                                            {#if llmModelsLoading}
-                                                <span class="import-loading">{t('llmModelLoading')}</span>
-                                            {:else if llmModelsError}
-                                                <input type="text" bind:value={importLlmModel} placeholder={t('importLlmModelPlaceholder')} />
-                                            {:else}
-                                                <select bind:value={importLlmModel} disabled={importing}>
-                                                    <option value="">{t('llmModelPlaceholder')}</option>
-                                                    {#each llmModels as m}
-                                                        <option value={m}>{m}</option>
-                                                    {/each}
-                                                </select>
-                                            {/if}
-                                        {/if}
-                                    </div>
+												{#if importLlmProvider}
+													{#if llmModelsLoading}
+														<span class="import-loading">{t('llmModelLoading')}</span>
+													{:else if llmModelsError}
+														<input type="text" bind:value={importLlmModel} placeholder={t('importLlmModelPlaceholder')} />
+													{:else}
+														<select bind:value={importLlmModel} disabled={importing}>
+															<option value="">{t('llmModelPlaceholder')}</option>
+															{#each llmModels as m}
+																<option value={m}>{m}</option>
+															{/each}
+														</select>
+													{/if}
+												{/if}
+											</div>
 
-                                    {#if importLlmProvider === 'custom'}
-                                        <p class="import-info">{t('llmCustomHint')}</p>
-                                        <label class="import-field">
-                                            <span>{t('llmCustomBaseUrlLabel')}</span>
-                                            <input type="url" bind:value={importLlmCustomBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')} />
-                                        </label>
-                                        <label class="import-field">
-                                            <span>{t('llmCustomApiKeyLabel')}</span>
-                                            <input type="password" bind:value={importLlmCustomApiKey} placeholder={t('llmCustomApiKeyPlaceholder')} />
-                                        </label>
-                                    {/if}
+											{#if importLlmProvider === 'custom'}
+												<p class="import-info">{t('llmCustomHint')}</p>
+												<label class="import-field">
+													<span>{t('llmCustomBaseUrlLabel')}</span>
+													<input type="url" bind:value={importLlmCustomBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')} />
+												</label>
+												<label class="import-field">
+													<span>{t('llmCustomApiKeyLabel')}</span>
+													<input type="password" bind:value={importLlmCustomApiKey} placeholder={t('llmCustomApiKeyPlaceholder')} />
+												</label>
+											{/if}
 
-                                    {#if llmModelsError}
-                                        <p class="form-error">{llmModelsError}</p>
-                                    {/if}
-                                    {#if importLlmProvider === 'ollama' && llmModelsError}
-                                        <p class="import-info">{t('llmOllamaHint')}</p>
-                                    {/if}
-                                </div>
-                            {/if}
+											{#if llmModelsError}
+												<p class="form-error">{llmModelsError}</p>
+											{/if}
+											{#if importLlmProvider === 'ollama' && llmModelsError}
+												<p class="import-info">{t('llmOllamaHint')}</p>
+											{/if}
+										</div>
+									{/if}
 
-                            <textarea
-                                bind:value={importLlmHint}
-                                placeholder={t('importLlmHintPlaceholder')}
-                                rows="6"
-                                maxlength={20000}
-                                class="llm-hint-input"
-                            ></textarea>
+									<textarea
+										bind:value={importLlmHint}
+										placeholder={t('importLlmHintPlaceholder')}
+										rows="6"
+										maxlength={20000}
+										class="llm-hint-input"
+									></textarea>
 
-                            <button type="button" class="btn btn--primary" onclick={onImport}
-                                disabled={importing || !importLlmModel.trim() || (!importLlmHint.trim() && !importLlmImage)}>
-                                {importing ? t('importButtonLlmLoading') : t('importButtonLlm')}
-                            </button>
-                        {/if}
-                    {/if}
-					{#if importError || (importMode === 'bulk' && bulkError)}
-						<p class="form-error" role="alert">
-							<Icon name="circle-alert" size={18} />
-							<span>{importMode === 'bulk' && bulkError ? bulkError : importError}</span>
-						</p>
+									<button type="button" class="btn btn--primary" onclick={onImport}
+										disabled={importing || !importLlmModel.trim() || (!importLlmHint.trim() && !importLlmImage)}>
+										{importing ? t('importButtonLlmLoading') : t('importButtonLlm')}
+									</button>
+								{/if}
+							{/if}
+							{#if importError || (importMode === 'bulk' && bulkError)}
+								<p class="form-error" role="alert">
+									<Icon name="circle-alert" size={18} />
+									<span>{importMode === 'bulk' && bulkError ? bulkError : importError}</span>
+								</p>
+							{/if}
+						</section>
 					{/if}
-				</section>
-				{#if importMode !== 'bulk'}
-					{#key importToken}
-						<MealForm
-							editMode={false}
-							initialName={formName}
-							initialIngredients={formIngredients}
-							initialInstructions={formInstructions}
-							initialImage={formImage}
-							submitting={submitting}
-							onsubmit={onSubmitAdd}
-						/>
-					{/key}
-				{/if}
-		</div>
+					{#if importMode !== 'bulk'}
+						{#key importToken}
+							<MealForm
+								editMode={false}
+								initialName={formName}
+								initialIngredients={formIngredients}
+								initialInstructions={formInstructions}
+								initialImage={formImage}
+								submitting={submitting}
+								onsubmit={onSubmitAdd}
+							/>
+						{/key}
+					{/if}
+				</div>
+			</div>
 	</div>
 	{/if}
 </main>
@@ -736,38 +757,70 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 		}
 	}
 
-	.lightbox__close {
-		position: absolute;
-		top: var(--space-4);
-		right: var(--space-4);
-		color: white;
-		background: transparent;
-		border: 0;
-		cursor: pointer;
-		padding: var(--space-2);
-	}
-	.meal-card {
-		transition: transform var(--motion-morph), box-shadow var(--transition-base);
-		will-change: transform;
-	}
-	.edit-modal-overlay {
-		position: fixed;
-		inset: 0;
-		z-index: 1000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: var(--glass-scrim-dark);
-		padding: var(--space-4);
-	}
-	.edit-modal {
-		max-width: 640px;
+	.add-modal {
+		max-width: 720px;
 		width: 90vw;
 		max-height: 88vh;
-		overflow-y: auto;
+		overflow: hidden;
 		background: var(--color-surface);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-lg);
+		display: flex;
+		flex-direction: column;
+	}
+	.add-modal__header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: var(--space-4) var(--space-6);
+		border-bottom: 1px solid var(--color-border);
+		flex-shrink: 0;
+	}
+	.add-modal__title {
+		font-family: var(--font-display);
+		font-size: var(--text-xl);
+		font-weight: var(--weight-semibold);
+		margin: 0;
+	}
+	.add-modal__close {
+		border-radius: var(--radius-full);
+		width: 36px;
+		height: 36px;
+		padding: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		border: 0;
+		color: var(--color-text-secondary);
+		cursor: pointer;
+	}
+	.add-modal__close:hover {
+		background: var(--color-surface-2);
+		color: var(--color-text);
+	}
+	.add-modal__body {
+		overflow-y: auto;
+		flex: 1;
+		padding: var(--space-5) var(--space-6);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-5);
+	}
+
+	.import-section--collapsed {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-3) var(--space-4);
+		background: var(--color-success-bg);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+	}
+	.import-section__summary {
+		flex: 1;
+		font-size: var(--text-sm);
+		color: var(--color-text);
 	}
 
 	/* Import card — recessive, secondary to authoring form */
@@ -775,26 +828,84 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 		background: var(--color-surface-2);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-lg);
-		padding: var(--space-6);
+		padding: var(--space-5);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
-		margin-bottom: var(--space-5);
-	}
-	.import-card h2 {
-		margin: 0;
+		gap: var(--space-4);
 	}
 	.import-tabs {
 		display: flex;
+		gap: var(--space-1);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-full);
+		padding: var(--space-1);
+	}
+	.import-tab {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		border: 0;
+		background: transparent;
+		color: var(--color-text-secondary);
+		font-size: var(--text-sm);
+		font-weight: var(--weight-medium);
+		border-radius: var(--radius-full);
+		cursor: pointer;
+		transition: background var(--motion-morph), color var(--motion-morph);
+		white-space: nowrap;
+	}
+	.import-tab--active {
+		background: var(--color-primary);
+		color: var(--color-on-primary);
+	}
+	.import-tab:hover:not(.import-tab--active) {
+		background: var(--color-surface-2);
+		color: var(--color-text);
+	}
+
+	.bulk-results {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+	}
+	.bulk-results__success {
+		margin: 0;
+		font-weight: var(--weight-semibold);
+		color: var(--color-success);
+	}
+	.bulk-results__failures {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
 		gap: var(--space-2);
 	}
-	.import-tabs .btn {
-		transition: border-color var(--motion-morph), color var(--motion-morph), background var(--motion-morph);
+	.bulk-results__url {
+		font-size: var(--text-xs);
+		color: var(--color-text-muted);
+		word-break: break-all;
 	}
-	.btn--active {
-		border-color: var(--color-primary);
-		color: var(--color-primary);
-		font-weight: var(--weight-medium);
+	.bulk-results__reason {
+		font-size: var(--text-xs);
+		color: var(--color-error);
+	}
+
+	@media (max-width: 640px) {
+		.import-tabs {
+			flex-wrap: wrap;
+			border-radius: var(--radius-lg);
+		}
+		.import-tab {
+			flex: 1 1 calc(50% - var(--space-1));
+		}
+		.import-tab span {
+			font-size: var(--text-xs);
+		}
 	}
 
     .llm-settings-toggle {

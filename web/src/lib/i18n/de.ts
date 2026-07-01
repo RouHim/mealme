@@ -169,6 +169,8 @@ export const de: Record<TranslationKey, string> = {
 	importBulkReasonNoRecipe: 'Kein Rezept gefunden',
 	importBulkReasonValidation: 'Validierung fehlgeschlagen',
 	importBulkNewBatch: 'Neuer Import',
+	importCollapsedSummary: 'Rezept importiert - Details unten bearbeiten',
+	importCollapsedExpand: 'Weiteres importieren',
 	languageLabel: 'Sprache',
 	languageSystem: 'System',
 	languageEnglish: 'English',
