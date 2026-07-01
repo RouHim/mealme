@@ -1,6 +1,7 @@
 <script lang="ts">
     import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromUrl, importFromPaste, importFromLlm, importBulk, listLlmProviders, listLlmModels, ApiError } from '$lib/api';
 	import type { Meal, NewIngredientLine } from '$lib/types';
+import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import { t, formatDate } from '$lib/i18n';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -45,6 +46,7 @@
     let llmModelsLoading = $state(false);
     let llmModelsError = $state<string | null>(null);
     let importLlmCustomBaseUrl = $state('');
+    let llmConfigRestored = false;
     let importLlmCustomApiKey = $state('');
 
     let bulkUrls = $state('');
@@ -73,6 +75,14 @@
                 const bytes = Uint8Array.from(atob(draft.imageBase64), c => c.charCodeAt(0));
                 formImage = new File([bytes], 'imported.jpg', { type: 'image/jpeg' });
                 removeImage = false;
+            }
+            if (importMode === 'llm') {
+                persistLlmConfig({
+                    provider: importLlmProvider,
+                    model: importLlmModel,
+                    customBaseUrl: importLlmCustomBaseUrl,
+                    customApiKey: importLlmCustomApiKey,
+                });
             }
             importUrl = '';
             importPaste = '';
@@ -143,6 +153,12 @@
                 importLlmProvider === 'custom' ? importLlmCustomApiKey || undefined : undefined,
             );
             llmModels = resp.models;
+            // Reconcile restored model: if it's not in the fetched list,
+            // fall back to free-text input by setting an error (the form
+            // renders a text input when llmModelsError is non-null).
+            if (importLlmModel && !resp.models.includes(importLlmModel)) {
+                llmModelsError = t('llmModelsLoadError');
+            }
         } catch (err) {
             llmModels = [];
             if (err instanceof ApiError) {
@@ -168,6 +184,25 @@
         }
     }
 
+    // Restore stored LLM config when LLM tab is first activated
+    $effect(() => {
+        if (importMode === 'llm' && !llmConfigRestored) {
+            llmConfigRestored = true;
+            const stored = readStoredLlmConfig();
+            if (stored) {
+                importLlmProvider = stored.provider;
+                importLlmModel = stored.model;
+                importLlmCustomBaseUrl = stored.customBaseUrl;
+                importLlmCustomApiKey = stored.customApiKey;
+                // Trigger model loading for standard providers;
+                // custom providers are picked up by the debounce effect below.
+                if (stored.provider && stored.provider !== 'custom') {
+                    loadLlmModels();
+                }
+            }
+        }
+    });
+
     // Load providers when LLM tab is first activated
     $effect(() => {
         if (importMode === 'llm' && !llmProvidersLoaded && !llmProvidersLoading) {
@@ -176,6 +211,11 @@
                 llmProviders = p;
                 llmProvidersLoaded = true;
                 llmProvidersLoading = false;
+                // Reconcile restored provider against live list
+                if (importLlmProvider && !p.some(pp => pp.id === importLlmProvider)) {
+                    importLlmProvider = '';
+                    importLlmModel = '';
+                }
             }).catch(() => {
                 llmProvidersLoading = false;
             });
@@ -218,7 +258,7 @@
 
     function openAdd() {
         formName = ''; formIngredients = [{ name: '', quantity: null }]; formInstructions = '';
-        formImage = null; removeImage = false; submitting = false;
+        formImage = null; removeImage = false; submitting = false; llmConfigRestored = false;
         importMode = 'url'; importUrl = ''; importPaste = '';
         importLlmProvider = ''; importLlmModel = ''; importLlmHint = '';
         importLlmImage = null; importing = false; importError = null; importToken++;
