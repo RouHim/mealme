@@ -80,7 +80,6 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool, AppError> {
 pub fn normalize_ingredient_name(name: &str) -> String {
     name.split_whitespace()
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_lowercase())
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -165,16 +164,29 @@ pub async fn upsert_ingredients(
     }
     let mut result = Vec::with_capacity(names.len());
     for name in names {
-        sqlx::query("INSERT OR IGNORE INTO ingredients (name) VALUES (?1)")
-            .bind(name.as_str())
-            .execute(&mut *conn)
-            .await?;
-        let row =
-            sqlx::query_as::<_, IngredientRow>("SELECT id, name FROM ingredients WHERE name = ?1")
+        // Case-insensitive lookup first — preserve first-seen casing
+        let existing = sqlx::query_as::<_, IngredientRow>(
+            "SELECT id, name FROM ingredients WHERE name = ?1 COLLATE NOCASE",
+        )
+        .bind(name.as_str())
+        .fetch_optional(&mut *conn)
+        .await?;
+
+        if let Some(row) = existing {
+            result.push((row.id, row.name));
+        } else {
+            sqlx::query("INSERT INTO ingredients (name) VALUES (?1)")
                 .bind(name.as_str())
-                .fetch_one(&mut *conn)
+                .execute(&mut *conn)
                 .await?;
-        result.push((row.id, row.name));
+            let row = sqlx::query_as::<_, IngredientRow>(
+                "SELECT id, name FROM ingredients WHERE name = ?1 COLLATE NOCASE",
+            )
+            .bind(name.as_str())
+            .fetch_one(&mut *conn)
+            .await?;
+            result.push((row.id, row.name));
+        }
     }
     Ok(result)
 }
@@ -980,18 +992,27 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn given_name_with_mixed_case_and_whitespace_when_normalize_then_lowercases_and_collapses_internal_whitespace()
+    fn given_name_with_mixed_case_and_whitespace_when_normalize_then_preserves_case_and_collapses_internal_whitespace()
      {
-        assert_eq!(normalize_ingredient_name(" Salt "), "salt");
+        assert_eq!(normalize_ingredient_name(" Salt "), "Salt");
         assert_eq!(
             normalize_ingredient_name("  Black   Pepper  "),
-            "black pepper"
+            "Black Pepper"
         );
     }
 
     #[test]
     fn given_name_with_only_whitespace_when_normalize_then_returns_empty_string() {
         assert_eq!(normalize_ingredient_name("   "), "");
+    }
+
+    #[test]
+    fn given_unicode_ingredient_name_when_normalize_then_preserves_case_and_collapses_whitespace() {
+        assert_eq!(
+            normalize_ingredient_name("  Thüringer   Rostbratwurst  "),
+            "Thüringer Rostbratwurst"
+        );
+        assert_eq!(normalize_ingredient_name("grüne Kresse"), "grüne Kresse");
     }
 
     // -----------------------------------------------------------------------
@@ -1353,6 +1374,48 @@ mod tests {
         assert!(ings.is_empty());
     }
 
+    #[tokio::test]
+    async fn given_same_ingredient_different_case_when_insert_across_meals_then_deduplicates_preserving_first_casing()
+     {
+        let (pool, _dir) = setup_db().await;
+        // First meal uses "Thüringer Rostbratwurst" (imported casing)
+        let meal_a = insert_test_meal(
+            &pool,
+            "Meal A",
+            &[("Thüringer Rostbratwurst", Some("200 g"))],
+        )
+        .await;
+        // Second meal uses lowercase variant — must resolve to the SAME ingredient row
+        let meal_b = insert_test_meal(
+            &pool,
+            "Meal B",
+            &[("thüringer rostbratwurst", Some("100 g"))],
+        )
+        .await;
+
+        let mut conn = pool.acquire().await.unwrap();
+        let ings_a = get_meal_ingredients(&mut *conn, meal_a.id)
+            .await
+            .expect("get");
+        let ings_b = get_meal_ingredients(&mut *conn, meal_b.id)
+            .await
+            .expect("get");
+
+        // First-seen casing "Thüringer Rostbratwurst" is stored, not lowercased
+        assert_eq!(ings_a[0].name, "Thüringer Rostbratwurst");
+        // Second meal resolves to the SAME ingredient row (same casing as first-seen)
+        assert_eq!(ings_b[0].name, "Thüringer Rostbratwurst");
+
+        // Only one ingredient row exists in the table (case-insensitive dedup)
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM ingredients WHERE name = 'Thüringer Rostbratwurst' COLLATE NOCASE",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+    }
+
     // -----------------------------------------------------------------------
     // hydrate_meals
     // -----------------------------------------------------------------------
@@ -1520,7 +1583,7 @@ mod tests {
         let meal = result.expect("insert_meal");
         assert!(meal.id > 0);
         assert_eq!(meal.ingredients.len(), 1);
-        assert_eq!(meal.ingredients[0].name, "salt");
+        assert_eq!(meal.ingredients[0].name, "Salt");
         assert_eq!(meal.ingredients[0].quantity.as_deref(), Some("200g"));
     }
 
@@ -1551,7 +1614,7 @@ mod tests {
         assert_eq!(updated.id, original.id);
         assert_eq!(updated.name, "New Name");
         assert_eq!(updated.ingredients.len(), 1);
-        assert_eq!(updated.ingredients[0].name, "new");
+        assert_eq!(updated.ingredients[0].name, "New");
         assert!(updated.updated_at > original.updated_at);
     }
 
