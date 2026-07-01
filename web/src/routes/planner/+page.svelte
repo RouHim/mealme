@@ -397,7 +397,7 @@
 										title={bs.loading ? t('bringSending') : bs.success ? t('bringSent') : t('bringSend')}
 									>
 										{#if bs.loading}
-											<Icon name="loader-circle" size={16} />
+											<Icon name="loader-circle" size={16} spin={true} />
 										{:else if bs.success}
 											<Icon name="check" size={16} />
 										{:else}

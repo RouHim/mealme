@@ -774,46 +774,50 @@ button {
   outline-offset: 2px;
 }
 
-.app-bar__bring {
+.site-footer__bring {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.site-footer__bring-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
   color: var(--color-text-secondary);
   border-radius: var(--radius-full);
   cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
 }
-.app-bar__bring:hover {
-  color: var(--color-primary);
+.site-footer__bring-btn:hover {
   border-color: var(--color-border-strong);
   background: var(--glass-bg-strong);
 }
-.app-bar__bring:focus-visible {
+.site-footer__bring-btn:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
-.app-bar__bring:disabled {
+.site-footer__bring-btn:disabled {
   cursor: wait;
   opacity: 0.6;
 }
-.app-bar__bring--connected {
+.site-footer__bring-btn--connected {
   color: var(--color-success);
 }
-.app-bar__bring--error {
+.site-footer__bring-btn--error {
   color: var(--color-danger);
 }
-.app-bar__bring-error {
+.site-footer__bring-error {
   font-size: var(--text-sm);
   color: var(--color-danger);
   padding: var(--space-1) var(--space-2);
 }
 @media (prefers-reduced-motion: reduce) {
-  .app-bar__bring {
+  .site-footer__bring-btn {
     transition: none;
   }
 }
@@ -862,7 +866,7 @@ button {
 /* Footer — glass bar matching the app bar, anchored at page bottom */
 .site-footer {
 	display: flex;
-	justify-content: center;
+	justify-content: space-between;
 	align-items: center;
 	gap: var(--space-2);
 	padding: var(--space-3) var(--space-4);

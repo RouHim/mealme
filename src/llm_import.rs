@@ -146,7 +146,7 @@ pub async fn list_models(
 
 const TOOL_NAME: &str = "extract_recipe";
 
-const SYSTEM_PROMPT: &str = "You are a recipe extraction assistant. Extract the recipe from the user's input (an image of a meal, a text description, or both) and call the extract_recipe tool with the result. Always call the tool.";
+const SYSTEM_PROMPT: &str = "You are a recipe extraction assistant. Extract the recipe from the user's input (an image of a meal, a text description, a recipe URL, or any combination) and call the extract_recipe tool with the result. Always call the tool.";
 
 fn recipe_tool() -> genai::chat::Tool {
     genai::chat::Tool::new(TOOL_NAME)

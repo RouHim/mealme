@@ -403,6 +403,25 @@ pub async fn import_from_llm(
         }
     }
 
+    // If the hint is a bare URL, fetch the page server-side and expand to
+    // readable text so the LLM can extract a recipe from it.
+    let hint = if hint.as_deref().is_some_and(recipe::is_bare_url) {
+        let h = hint.as_deref().unwrap();
+        let html = recipe::fetch_page_html(h).await?;
+        let text = recipe::extract_readable_text(&html);
+        if text.trim().is_empty() {
+            return Err(AppError::BadRequest(
+                "URL returned no extractable text".into(),
+            ));
+        }
+        Some(recipe::truncate(
+            &format!("Recipe from {h}:\n{text}"),
+            MAX_HINT_CHARS,
+        ))
+    } else {
+        hint
+    };
+
     const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
     let image = match image_bytes {
         Some(bytes) => {

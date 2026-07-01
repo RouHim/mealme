@@ -32,8 +32,10 @@ pub fn parse_recipe(text: &str) -> Result<ImportDraft, AppError> {
     })
 }
 
-/// Fetch a URL server-side, then parse. Image download is best-effort.
-pub async fn fetch_and_parse(url: &str) -> Result<ImportDraft, AppError> {
+/// Fetch a URL and return the HTML body as a `String`. Used by both
+/// [`fetch_and_parse`] (recipe-scraper path) and [`import_from_llm`]
+/// (LLM URL expansion path).
+pub async fn fetch_page_html(url: &str) -> Result<String, AppError> {
     let parsed_url =
         reqwest::Url::parse(url).map_err(|_| AppError::BadRequest("invalid URL".into()))?;
 
@@ -57,7 +59,6 @@ pub async fn fetch_and_parse(url: &str) -> Result<ImportDraft, AppError> {
         )));
     }
 
-    // Check content-length; reject pages > 2MB
     if let Some(len) = resp.content_length() {
         if len > 2_000_000 {
             return Err(AppError::BadRequest("page too large (max 2MB)".into()));
@@ -69,16 +70,27 @@ pub async fn fetch_and_parse(url: &str) -> Result<ImportDraft, AppError> {
         .await
         .map_err(|e| AppError::BadRequest(format!("failed to read page body: {e}")))?;
 
-    let html = std::str::from_utf8(&bytes)
-        .map_err(|_| AppError::BadRequest("page is not valid UTF-8".into()))?;
+    std::str::from_utf8(&bytes)
+        .map(|s| s.to_string())
+        .map_err(|_| AppError::BadRequest("page is not valid UTF-8".into()))
+}
+/// Fetch a URL server-side, then parse. Image download is best-effort.
+pub async fn fetch_and_parse(url: &str) -> Result<ImportDraft, AppError> {
+    let html = fetch_page_html(url).await?;
+    let (mut draft, image_url) = parse_recipe_with_image_url(&html)?;
 
-    let (mut draft, image_url) = parse_recipe_with_image_url(html)?;
-
-    // Image download (best-effort)
+    // Image download (best-effort) — needs its own client
     if let Some(img_url) = image_url {
-        if let Some(jpeg_bytes) = try_download_image(&client, &img_url).await {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
-            draft.image_base64 = Some(b64);
+        if let Ok(client) = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(10))
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+            .build()
+        {
+            if let Some(jpeg_bytes) = try_download_image(&client, &img_url).await {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+                draft.image_base64 = Some(b64);
+            }
         }
     }
 
@@ -271,7 +283,7 @@ fn split_ingredient_line(line: &str) -> NewIngredientLine {
 }
 
 /// Truncate a string to `max` chars, appending `…` if truncated.
-fn truncate(s: &str, max: usize) -> String {
+pub fn truncate(s: &str, max: usize) -> String {
     if s.len() > max {
         let truncated = &s[..max.saturating_sub(1)];
         format!("{truncated}…")
@@ -345,6 +357,36 @@ pub fn sanitize_instructions(html: &str) -> String {
         String::new()
     } else {
         sanitized
+    }
+}
+
+/// Strip all HTML tags and return the plain text content with whitespace
+/// collapsed to single spaces. Uses `ammonia` with no allowed tags, plus
+/// `clean_content_tags` to drop script/style/noscript/nav/footer/header
+/// elements entirely.
+pub fn extract_readable_text(html: &str) -> String {
+    let clean_content: HashSet<&str> =
+        HashSet::from(["script", "style", "noscript", "nav", "footer", "header"]);
+    ammonia::Builder::empty()
+        .clean_content_tags(clean_content)
+        .clean(html)
+        .to_string()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Returns `true` when `s` is a bare `http://` or `https://` URL with no
+/// surrounding whitespace — i.e. the entire trimmed string is a single URL
+/// token.
+pub fn is_bare_url(s: &str) -> bool {
+    let s = s.trim();
+    if s.is_empty() || s.contains(char::is_whitespace) {
+        return false;
+    }
+    match reqwest::Url::parse(s) {
+        Ok(u) => u.scheme() == "http" || u.scheme() == "https",
+        Err(_) => false,
     }
 }
 
@@ -637,5 +679,45 @@ mod tests {
         let input = "<strong>important</strong><br>";
         let result = sanitize_instructions(input);
         assert_eq!(result, "<strong>important</strong><br>");
+    }
+
+    // ── extract_readable_text ──────────────────────────────────────────
+
+    #[test]
+    fn extract_readable_text_strips_script_style() {
+        let html = "<html><script>alert(1)</script><style>body{}</style><p>Hello world</p></html>";
+        let result = extract_readable_text(html);
+        assert_eq!(result, "Hello world");
+    }
+
+    #[test]
+    fn extract_readable_text_collapses_whitespace() {
+        let html = "<p>line one\nline two</p>\n<p>  extra   spaces  </p>";
+        let result = extract_readable_text(html);
+        assert_eq!(result, "line one line two extra spaces");
+    }
+
+    #[test]
+    fn extract_readable_text_empty_input() {
+        assert_eq!(extract_readable_text(""), "");
+    }
+
+    // ── is_bare_url ────────────────────────────────────────────────────
+
+    #[test]
+    fn is_bare_url_detects_http_https() {
+        assert!(is_bare_url("https://example.com/recipe"));
+        assert!(is_bare_url("http://localhost:8080/foo"));
+    }
+
+    #[test]
+    fn is_bare_url_rejects_plain_text() {
+        assert!(!is_bare_url("pasta with tomatoes"));
+        assert!(!is_bare_url(""));
+    }
+
+    #[test]
+    fn is_bare_url_rejects_embedded_url() {
+        assert!(!is_bare_url("see https://example.com here"));
     }
 }

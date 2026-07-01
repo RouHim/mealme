@@ -77,22 +77,6 @@
 		</a>
 	</nav>
 	<div class="app-bar__actions">
-		{#if bringState !== 'hidden'}
-			<button
-				class="app-bar__bring"
-				class:app-bar__bring--connected={bringState === 'connected'}
-				class:app-bar__bring--error={bringState === 'error'}
-				type="button"
-				aria-label={bringState === 'checking' ? t('bringStatusChecking') : bringState === 'connected' ? t('bringStatusConnected') : t('bringStatusError')}
-				title={bringState === 'error' && bringError ? bringError : undefined}
-				disabled={bringState === 'checking'}
-			>
-				<Icon name={bringState === 'checking' ? 'loader-circle' : bringState === 'connected' ? 'check' : 'circle-alert'} size={16} />
-			</button>
-			{#if bringState === 'error' && bringError}
-				<span class="app-bar__bring-error" role="alert">{bringError}</span>
-			{/if}
-		{/if}
 		<button class="app-bar__theme" type="button"
 			onclick={cycleTheme}
 			aria-label={t('themeToggle')}
@@ -108,4 +92,23 @@
 	<p class="attribution">
 		{t('bgPhoto')}: <a href="https://www.pexels.com/photo/cooked-food-with-sesame-seeds-8481834/" target="_blank" rel="noopener">Sergey Meshkov</a> / Pexels
 	</p>
+	{#if bringState !== 'hidden'}
+		<div class="site-footer__bring">
+			<button
+				class="site-footer__bring-btn"
+				class:site-footer__bring-btn--connected={bringState === 'connected'}
+				class:site-footer__bring-btn--error={bringState === 'error'}
+				type="button"
+				aria-label={bringState === 'checking' ? t('bringStatusChecking') : bringState === 'connected' ? t('bringStatusConnected') : t('bringStatusError')}
+				title={bringState === 'error' && bringError ? bringError : undefined}
+				disabled={bringState === 'checking'}
+			>
+				<Icon name="shopping-bag" size={16} spin={bringState === 'checking'} />
+				Bring!
+			</button>
+			{#if bringState === 'error' && bringError}
+				<span class="site-footer__bring-error" role="alert">{bringError}</span>
+			{/if}
+		</div>
+	{/if}
 </footer>

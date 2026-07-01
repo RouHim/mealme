@@ -96,7 +96,6 @@ export type TranslationKey =
 	| 'currentWeekTitle'
 	| 'currentWeekMeals'
 	| 'currentWeekNoMeals'
-	| 'currentWeekIngredientSummary'
 	| 'currentWeekEmpty'
 	| 'currentWeekPlannerLink'
 	| 'errorLoadPlan'

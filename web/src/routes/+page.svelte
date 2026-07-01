@@ -84,9 +84,6 @@
 								</div>
 								<div class="week-meal-card__body">
 									<h2 class="week-meal-card__name">{meal.name}</h2>
-									<p class="week-meal-card__ings">
-										{meal.ingredients.map(i => i.quantity ? `${i.name} (${i.quantity})` : i.name).join(', ')}
-									</p>
 								</div>
 							</a>
 						</li>
@@ -95,27 +92,6 @@
 			{/if}
 		</section>
 
-		{#if plan.ingredient_summary.length > 0}
-			<section class="week-summary glass">
-				<h2>{t('currentWeekIngredientSummary')}</h2>
-				<ul class="week-summary-grid">
-					{#each plan.ingredient_summary as entry (entry.name)}
-						<li class="week-summary-item">
-							<span class="week-summary-item__name">{entry.name}</span>
-							{#if entry.numeric_total}
-								<span class="week-summary-item__num">
-									{entry.numeric_total.value}
-									{#if entry.numeric_total.unit} {entry.numeric_total.unit}{/if}
-								</span>
-							{/if}
-							{#each entry.non_numeric as qty}
-								<span class="week-summary-item__text">{qty}</span>
-							{/each}
-						</li>
-					{/each}
-				</ul>
-			</section>
-		{/if}
 	{/if}
 </main>
 
@@ -151,9 +127,16 @@
 		list-style: none;
 		padding: 0;
 		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-5);
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: var(--space-4);
+	}
+
+	@media (min-width: 768px) {
+		.week-meal-list {
+			grid-template-columns: repeat(auto-fill, 300px);
+			justify-content: center;
+		}
 	}
 	.week-meal-card {
 		display: block;
@@ -188,25 +171,14 @@
 		color: var(--color-text-muted);
 	}
 	.week-meal-card__body {
-		padding: var(--space-4);
+		padding: var(--space-3);
 	}
 	.week-meal-card__name {
 		font-family: var(--font-display);
-		font-size: var(--text-xl);
+		font-size: var(--text-lg);
 		font-weight: var(--weight-semibold);
 		margin: 0 0 var(--space-1) 0;
 		line-height: 1.2;
-	}
-	.week-meal-card__ings {
-		font-size: var(--text-sm);
-		color: var(--color-text-secondary);
-		margin: 0;
-		line-height: 1.5;
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
 	}
 
 	.week-empty {
@@ -223,45 +195,5 @@
 		color: var(--color-text-secondary);
 	}
 
-	.week-summary {
-		border: 1px solid var(--glass-border);
-		border-radius: var(--radius-lg);
-		padding: var(--space-6);
-		margin-top: var(--space-8);
-	}
-	.week-summary h2 {
-		margin: 0 0 var(--space-4) 0;
-		font-family: var(--font-display);
-		font-size: var(--text-xl);
-		font-weight: var(--weight-semibold);
-	}
-	.week-summary-grid {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-		gap: var(--space-3) var(--space-4);
-	}
-	.week-summary-item {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-0-5);
-		padding: var(--space-2) 0;
-	}
-	.week-summary-item__name {
-		font-size: var(--text-sm);
-		font-weight: var(--weight-medium);
-		color: var(--color-text);
-	}
-	.week-summary-item__num {
-		font-size: var(--text-sm);
-		font-weight: var(--weight-semibold);
-		color: var(--color-primary);
-	}
-	.week-summary-item__text {
-		font-size: var(--text-xs);
-		color: var(--color-text-secondary);
-	}
 
 </style>
